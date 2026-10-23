@@ -71,6 +71,8 @@
       : `<rect class="fp-tbody" x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" rx="12"/>`;
   }
 
+  let TROT = 0;   // αντιστροφή περιστροφής για τα κείμενα όταν η κάτοψη είναι γυρισμένη (κινητό σε κάθετη θέση)
+  const trot = (x, y) => TROT ? ` transform="rotate(${TROT}${x != null ? ' ' + x + ' ' + y : ''})"` : '';
   function tableSvg(t, cls, line2, key) {
     const w = +t.w || 80, h = +t.h || 80;
     const fs = clamp(Math.min(w, h) * 0.24, 12, 20);
@@ -78,9 +80,9 @@
     const l2 = line2 ? (line2.length > maxChars ? line2.slice(0, maxChars - 1) + '…' : line2) : '';
     return `<g class="fp-item fp-table ${cls || ''}" data-k="${key || 't:' + t.id}" transform="translate(${t.x} ${t.y})">` +
       `<g transform="rotate(${+t.rot || 0})">${chairsSvg(t)}${tableBody(t)}</g>` +
-      `<text class="l1" y="${l2 ? -fs * 0.38 : 0}" font-size="${fs}">${esc(t.name)}</text>` +
+      `<g${trot()}><text class="l1" y="${l2 ? -fs * 0.38 : 0}" font-size="${fs}">${esc(t.name)}</text>` +
       (l2 ? `<text class="l2" y="${fs * 0.62}" font-size="${clamp(fs * 0.62, 10, 13)}">${esc(l2)}</text>` : '') +
-      `</g>`;
+      `</g></g>`;
   }
 
   function decorInner(d) {
@@ -93,11 +95,12 @@
       case 'plant': return `<circle class="fp-plant" r="${w / 2}"/>` +
         [0, 72, 144, 216, 288].map(a => `<ellipse class="fp-plant-in" cx="0" cy="${-w / 4}" rx="${w / 9}" ry="${w / 4.5}" transform="rotate(${a})"/>`).join('');
       case 'bar': return `<rect class="fp-bar" x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" rx="12"/>` +
-        `<text class="fp-dtext" font-size="${clamp(h * 0.32, 11, 20)}">${esc(d.text)}</text>`;
+        `<text class="fp-dtext"${(String(d.text || '').length * clamp(h * 0.32, 11, 20) * 0.62 < h - 8) ? trot() : ''} font-size="${clamp(h * 0.32, 11, 20)}">${esc(d.text)}</text>`;
       case 'zone': return `<rect class="fp-zone z-${esc(d.color || 'mint')}" x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" rx="20"/>` +
-        `<text class="fp-ztext" x="${-w / 2 + 16}" y="${-h / 2 + 24}" font-size="15">${esc(d.text)}</text>`;
+        (TROT ? `<text class="fp-ztext" x="${-w / 2 + 24}" y="${h / 2 - 16}"${trot(-w / 2 + 24, h / 2 - 16)} font-size="15">${esc(d.text)}</text>`
+              : `<text class="fp-ztext" x="${-w / 2 + 16}" y="${-h / 2 + 24}" font-size="15">${esc(d.text)}</text>`);
       case 'label': return `<rect class="fp-hit" x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}"/>` +
-        `<text class="fp-ltext" font-size="${clamp(h * 0.7, 10, 60)}">${esc(d.text)}</text>`;
+        `<text class="fp-ltext"${trot()} font-size="${clamp(h * 0.7, 10, 60)}">${esc(d.text)}</text>`;
     }
     return '';
   }
@@ -215,28 +218,54 @@
           timeSel,
           h('button', { class: 'btn icon small', 'aria-label': 'Αργότερα', disabled: idx >= opts.length - 1, onclick: () => { S.floorTime = opts[idx + 1]; api.renderView(); } }, svg(IC.right)),
           S.date === L.fmtDate(new Date()) ? h('button', { class: 'btn small', onclick: () => { S.floorTime = defaultTime(slots); api.renderView(); } }, 'Τώρα') : null),
+        h('button', { class: 'btn fp-join-btn' + (S.joinMode ? ' on' : ''), title: 'Ένωση τραπεζιών',
+          onclick: () => { S.joinMode = !S.joinMode; S.joinSel = []; S.assignId = null; api.renderView(); } }, svg(IC.link), h('span', null, 'Ένωση')),
         h('div', { style: { flex: 1 } }),
-        api.isAdmin() ? h('button', { class: 'btn', onclick: () => openEditor(area.id) }, svg(IC.edit), 'Επεξεργασία κάτοψης') : null));
+        api.isAdmin() ? h('button', { class: 'btn fp-edit-btn', title: 'Επεξεργασία κάτοψης', onclick: () => openEditor(area.id) }, svg(IC.edit), h('span', null, 'Επεξεργασία κάτοψης')) : null));
 
       // κάτοψη
       const mine = tables.filter(t => sameId(t.area_id, area.id));
       const states = new Map(mine.map(t => [t.id, tableState(t, T)]));
+      if (!Array.isArray(S.joinSel)) S.joinSel = [];
+      S.joinSel = S.joinSel.filter(id => tables.some(t => Number(t.id) === id));
+      if (S.joinMode) v.append(joinBar(tables, T));
+
+      // ομάδες ενωμένων τραπεζιών: κρατήσεις με 2+ τραπέζια στον χώρο, την ώρα που βλέπουμε
+      const groups = [];
+      const seen = new Set();
+      for (const t of mine) {
+        const st = states.get(t.id), r = st.res || st.soon;
+        if (!r || seen.has(r.id)) continue;
+        const ids = (r.table_ids || []).map(Number);
+        const members = mine.filter(x => ids.includes(Number(x.id)));
+        if (members.length > 1) { seen.add(r.id); groups.push({ cls: st.cls, members }); }
+      }
+      if (S.joinMode && S.joinSel.length > 1) groups.push({ cls: 'picked', members: mine.filter(t => S.joinSel.includes(Number(t.id))) });
+      const joinSvg = groups.map(g => mstEdges(g.members).map(([a, b]) =>
+        `<line class="fp-join j-${g.cls}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`).join('')).join('');
       let canAssign = null;
       if (assignRes) {
         const s = L.svcMin(assignRes.res_time), d = assignRes.duration_min || 120;
         canAssign = new Set(mine.filter(t => t.active !== false && !L.tableConflict(S.dayRes, t.id, s, d, assignRes.id)).map(t => t.id));
       }
-      const svgStr = `<svg class="fp-svg" viewBox="-20 -20 ${area.width + 40} ${area.height + 40}" xmlns="http://www.w3.org/2000/svg">` +
-        floorSvg(area, false) + decorLayers(area, false) +
-        mine.map(t => {
-          const st = states.get(t.id);
-          let cls = st.cls;
-          if (canAssign) cls += canAssign.has(t.id) ? ' can' : ' cannot';
-          if (assignRes && (assignRes.table_ids || []).map(Number).includes(Number(t.id))) cls += ' picked';
-          return tableSvg(t, cls, st.line);
-        }).join('') + `</svg>`;
-      const stage = h('div', { class: 'fp-stage' + (assignRes ? ' assigning' : '') });
-      stage.innerHTML = svgStr;
+      const buildSvg = rot => {
+        const W = area.width, H = area.height;
+        TROT = rot ? -90 : 0;
+        const inner = floorSvg(area, false) + decorLayers(area, false) + joinSvg +
+          mine.map(t => {
+            const st = states.get(t.id);
+            let cls = st.cls;
+            if (S.joinMode) cls += S.joinSel.includes(Number(t.id)) ? ' picked' : (st.cls === 'free' || st.cls === 'soon' ? ' can' : ' cannot');
+            if (canAssign) cls += canAssign.has(t.id) ? ' can' : ' cannot';
+            if (assignRes && (assignRes.table_ids || []).map(Number).includes(Number(t.id))) cls += ' picked';
+            return tableSvg(t, cls, st.line);
+          }).join('');
+        TROT = 0;
+        return rot
+          ? `<svg class="fp-svg" viewBox="-20 -20 ${H + 40} ${W + 40}" xmlns="http://www.w3.org/2000/svg"><g transform="translate(${H} 0) rotate(90)">${inner}</g></svg>`
+          : `<svg class="fp-svg" viewBox="-20 -20 ${W + 40} ${H + 40}" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
+      };
+      const stage = h('div', { class: 'fp-stage' + (assignRes || S.joinMode ? ' assigning' : '') });
       stage.addEventListener('click', e => {
         const g = e.target.closest('[data-k]'); if (!g) return;
         const id = Number(g.dataset.k.slice(2));
@@ -286,9 +315,102 @@
           }, h('b', null, L.fromMin(L.svcMin(r.res_time))), h('span', null, r.name), h('span', { class: 'pax' }, r.party_size + ' άτ.'))))));
 
       v.append(h('div', { class: 'fp-live' }, stage, side));
+      fitStage(stage, area, buildSvg);
     }
 
+    /* Ελάχιστο δέντρο σύνδεσης (κοντινότερα τραπέζια ενώνονται μεταξύ τους) */
+    function mstEdges(list) {
+      if (list.length < 2) return [];
+      const inT = [list[0]], out = list.slice(1), edges = [];
+      while (out.length) {
+        let best = null;
+        for (const a of inT) for (const b of out) {
+          const d = Math.hypot(a.x - b.x, a.y - b.y);
+          if (!best || d < best.d) best = { a, b, d };
+        }
+        edges.push([best.a, best.b]); inT.push(best.b); out.splice(out.indexOf(best.b), 1);
+      }
+      return edges;
+    }
+
+    /* Μπάρα ένωσης: επιλεγμένα τραπέζια → νέα κράτηση ή ανάθεση σε υπάρχουσα */
+    function joinBar(tables, T) {
+      const sel = S.joinSel.map(id => tables.find(t => Number(t.id) === id)).filter(Boolean);
+      const seats = sel.reduce((s, t) => s + (+t.seats || 0), 0);
+      const opts = S.dayRes.filter(L.isActive).sort((a, b) => L.svcMin(a.res_time) - L.svcMin(b.res_time));
+      const resSel = h('select', { class: 'input fp-join-res', disabled: sel.length < 1, onchange: async e => {
+        const r = opts.find(x => String(x.id) === e.target.value); e.target.value = '';
+        if (!r) return;
+        const s0 = L.svcMin(r.res_time), d = r.duration_min || 120;
+        const c = sel.map(t => ({ t, c: L.tableConflict(S.dayRes, t.id, s0, d, r.id) })).find(x => x.c);
+        if (c) { toast('Το ' + c.t.name + ' είναι πιασμένο στις ' + L.fromMin(s0) + ' από ' + c.c.name, true); return; }
+        if (!(await confirmBox('Ένωση τραπεζιών', 'Η κράτηση «' + r.name + '» (' + r.party_size + ' άτ., ' + L.fromMin(s0) + ') θα πάει στα τραπέζια ' + api.tableNames(S.joinSel) + ' (' + seats + ' θέσεις).', 'Ένωση'))) return;
+        try {
+          await S.store.patchReservation(r.id, { table_ids: S.joinSel.slice() });
+          toast('Ενώθηκαν: ' + api.tableNames(S.joinSel) + ' → ' + r.name);
+          S.joinMode = false; S.joinSel = []; await api.reload();
+        } catch (err) { toast(err.message, true); }
+      } }, h('option', { value: '' }, 'Σε υπάρχουσα κράτηση…'),
+        opts.map(r => h('option', { value: r.id }, L.fromMin(L.svcMin(r.res_time)) + ' · ' + r.name + ' · ' + r.party_size + ' άτ.' + ((r.table_ids || []).length ? ' (' + api.tableNames(r.table_ids) + ')' : ''))));
+      return h('div', { class: 'fp-joinbar' },
+        h('div', { class: 'fp-join-info' },
+          sel.length
+            ? [h('b', null, sel.map(t => t.name).join(' + ')), h('span', null, seats + ' θέσεις')]
+            : h('span', null, 'Πάτα τα τραπέζια που θέλεις να ενώσεις')),
+        h('div', { class: 'fp-join-acts' },
+          h('button', { class: 'btn small primary', disabled: sel.length < 1, onclick: () => {
+            const ids = S.joinSel.slice();
+            S.joinMode = false; S.joinSel = [];
+            api.renderView();
+            api.openResForm(null, { res_time: L.fromMin(T), table_ids: ids, party_size: Math.max(1, seats) });
+          } }, svg(IC.plus), 'Νέα κράτηση'),
+          resSel,
+          h('button', { class: 'btn small', onclick: () => { S.joinMode = false; S.joinSel = []; api.renderView(); } }, 'Άκυρο')));
+    }
+
+    /* Η κάτοψη χωράει ολόκληρη στο διαθέσιμο πλάτος και ύψος· σε κάθετη οθόνη γυρίζει 90° αν έτσι βγαίνει μεγαλύτερη */
+    function fitStage(stage, area, buildSvg) {
+      const r = stage.getBoundingClientRect();
+      const aw = Math.max(200, stage.clientWidth - 20);
+      let ah = window.innerHeight - r.top + window.scrollY - 26;
+      let scrollTo = null, topH = 0;
+      if (ah < window.innerHeight * 0.5) {
+        // χαμηλή οθόνη (π.χ. κινητό οριζόντια): η κάτοψη πιάνει όλο το ύψος και η σελίδα κυλάει μόνη της ώστε να φαίνεται ολόκληρη
+        const tb = stage.parentElement.parentElement.querySelector('.fp-toolbar');
+        const tbH = tb ? tb.getBoundingClientRect().height + 10 : 0;
+        const top = document.querySelector('.topbar'); topH = top ? top.getBoundingClientRect().height : 0;
+        ah = window.innerHeight - topH - tbH - 30;
+        scrollTo = tb;
+      }
+      ah = Math.max(200, ah);
+      const W = area.width + 40, H = area.height + 40;
+      const s0 = Math.min(aw / W, ah / H), s1 = Math.min(aw / H, ah / W);
+      const rot = s1 > s0 * 1.12;
+      stage.innerHTML = buildSvg(rot);
+      const svgEl = stage.querySelector('svg');
+      const vw = rot ? H : W, vh = rot ? W : H, sc = Math.min(aw / vw, ah / vh);
+      svgEl.style.width = Math.floor(vw * sc) + 'px';
+      svgEl.style.height = Math.floor(vh * sc) + 'px';
+      stage.classList.toggle('rotated', rot);
+      if (scrollTo) requestAnimationFrame(() => window.scrollTo({ top: scrollTo.getBoundingClientRect().top + window.scrollY - topH - 6 }));
+    }
+
+    let rzT = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(rzT);
+      rzT = setTimeout(() => { if (S.view === 'floor' && !document.querySelector('.overlay, .fp-editor')) api.renderView(); }, 200);
+    });
+
     async function onTableClick(t, st, T, assignRes) {
+      if (S.joinMode) {
+        const id = Number(t.id);
+        if (S.joinSel.includes(id)) S.joinSel = S.joinSel.filter(x => x !== id);
+        else if (t.active === false) { toast('Το τραπέζι είναι ανενεργό', true); return; }
+        else if (st.res) { toast('Το ' + t.name + ' είναι πιασμένο από ' + st.res.name, true); return; }
+        else S.joinSel = S.joinSel.concat([id]);
+        api.renderView();
+        return;
+      }
       if (assignRes) {
         const s = L.svcMin(assignRes.res_time), d = assignRes.duration_min || 120;
         const ids = (assignRes.table_ids || []).map(Number);
@@ -440,8 +562,9 @@
       function drawCanvas() {
         const a = area();
         svgEl.setAttribute('viewBox', `-20 -20 ${a.width + 40} ${a.height + 40}`);
-        const avail = Math.max(320, canvas.clientWidth - 32);
-        const fit = Math.min(1, avail / (a.width + 40));
+        const mobile = window.innerWidth <= 900;
+        const availW = Math.max(240, canvas.clientWidth - (mobile ? 20 : 32)), availH = Math.max(240, (mobile ? window.innerHeight * 0.62 : canvas.clientHeight) - 32);
+        const fit = Math.min(availW / (a.width + 40), availH / (a.height + 40));
         svgEl.style.width = Math.round((a.width + 40) * fit * E.zoom) + 'px';
         zoomLbl.textContent = Math.round(E.zoom * 100) + '%';
         let s = floorSvg(a, true) + decorLayers(a, true) + areaTables().map(t => tableSvg(t, t.active === false ? 'inactive' : 'free', t.seats + ' θ.')).join('');

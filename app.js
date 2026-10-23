@@ -1,7 +1,7 @@
 /* Κρατήσεις — Ψητοπωλείο Παπαχρήστου */
 (function () {
   'use strict';
-  const VERSION = '1.4.0';
+  const VERSION = '1.5.1';
   const L = window.Logic;
 
   const DEFAULT_SETTINGS = {
@@ -104,6 +104,7 @@
     undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
     redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
     check: '<path d="M20 6 9 17l-5-5"/>',
+    link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
     download: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
     phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/>'
   };
@@ -273,21 +274,26 @@
     );
   }
 
-  function setDate(d) { S.date = d; S.assignId = null; const di = $('#date-input'); if (di) di.value = d; reload(); }
+  function setDate(d) { S.date = d; S.assignId = null; S.joinSel = []; const di = $('#date-input'); if (di) di.value = d; reload(); }
 
   function renderHeader() {
     const today = L.fmtDate(new Date());
     const rel = S.date === today ? 'Σήμερα' : S.date === L.addDays(today, 1) ? 'Αύριο' : S.date === L.addDays(today, -1) ? 'Χθες' : null;
     const t = $('#date-title'); t.innerHTML = '';
-    t.append(L.dayName(S.date) + ' ' + L.prettyDate(S.date), rel ? h('small', null, rel) : null);
+    t.append(L.dayName(S.date) + ' ' + L.prettyDate(S.date));
+    if (rel) t.append(h('small', null, rel));
 
     const cl = S.closures.find(c => c.day === S.date);
     const ps = L.periodsFor(S.settings, S.date, S.closures);
     const cb = $('#closed');
     cb.innerHTML = '';
+    const sp = L.specialFor(S.settings, S.date);
     if (cl || !ps.length) {
       cb.classList.remove('hidden');
       cb.append(h('div', null, cl ? 'Κλειστά: ' + (cl.note || 'αργία') : 'Δεν υπάρχει ωράριο λειτουργίας αυτή τη μέρα.'));
+    } else if (sp) {
+      cb.classList.remove('hidden');
+      cb.append(h('div', { class: 'special' }, '★ Ειδικό ωράριο: ' + L.periodsText(sp.periods) + (sp.note ? ' — ' + sp.note : '')));
     } else cb.classList.add('hidden');
 
     const act = S.dayRes.filter(L.isActive);
@@ -327,6 +333,7 @@
 
   function renderView() {
     const v = $('#view'); if (!v) return; v.innerHTML = '';
+    document.body.classList.toggle('view-floor', S.view === 'floor');
     if (S.view === 'list') renderList(v);
     else if (S.view === 'tables') renderTimeline(v);
     else if (S.view === 'floor') FP.renderLive(v);
@@ -410,7 +417,7 @@
       h('div', { class: 'who' },
         h('div', { class: 'name' }, r.name, h('span', { class: 'pax' }, r.party_size + ' άτ.'), h('span', { class: 'status ' + r.status }, STATUS[r.status])),
         h('div', { class: 'meta' },
-          h('span', null, tn ? 'Τραπ. ' + tn : h('b', { style: { color: 'var(--warn)' } }, 'Χωρίς τραπέζι' + (r.area_pref && r.area_pref !== 'any' && areaName(r.area_pref) ? ' (' + areaName(r.area_pref) + ')' : ''))),
+          h('span', null, tn ? ((r.table_ids || []).length > 1 ? '⛓ Ενωμένα ' : 'Τραπ. ') + tn : h('b', { style: { color: 'var(--warn)' } }, 'Χωρίς τραπέζι' + (r.area_pref && r.area_pref !== 'any' && areaName(r.area_pref) ? ' (' + areaName(r.area_pref) + ')' : ''))),
           r.phone ? h('a', { href: 'tel:' + L.intlPhone(r.phone) }, r.phone) : null,
           sent),
         r.notes ? h('div', { class: 'note' }, r.notes) : null),
@@ -457,7 +464,8 @@
           const s = L.svcMin(r.res_time), d = r.duration_min || 120;
           cells.append(h('button', { class: 'tl-block ' + r.status, style: { left: px(s) + 2 + 'px', width: Math.max(colW - 4, d / rng.step * colW - 4) + 'px' },
             title: r.name + ' · ' + r.party_size + ' άτ. · ' + L.fromMin(s) + '–' + L.fromMin(s + d) + (r.notes ? '\n' + r.notes : ''),
-            onclick: () => openResForm(r) }, r.name, h('small', null, L.fromMin(s) + ' · ' + r.party_size + ' άτ.')));
+            onclick: () => openResForm(r) }, r.name, h('small', null, L.fromMin(s) + ' · ' + r.party_size + ' άτ.' +
+              ((r.table_ids || []).length > 1 ? ' · ⛓ ' + tableNames((r.table_ids || []).filter(x => Number(x) !== Number(t.id))) : ''))));
         }
         tl.append(h('div', { class: 'tl-row' + (t.active === false ? ' inactive' : '') },
           h('div', { class: 'tl-name' }, t.name, h('small', null, t.seats + ' θέσ.')), cells));
@@ -510,14 +518,40 @@
     };
     drawSeg();
     const num = L.intlPhone(r.phone);
-    const enc = () => encodeURIComponent(ta.value);
-    const copy = async () => { try { await navigator.clipboard.writeText(ta.value); toast('Αντιγράφηκε'); } catch (e) { ta.select(); document.execCommand('copy'); toast('Αντιγράφηκε'); } };
-    const ch = h('div', { class: 'channels' },
-      num ? h('a', { class: 'btn', href: '#', onclick: e => { e.preventDefault(); location.href = 'sms:' + num + '?&body=' + enc(); } }, 'SMS') : null,
-      num ? h('a', { class: 'btn', href: '#', onclick: async e => { e.preventDefault(); await copy(); location.href = 'viber://chat?number=' + encodeURIComponent(num); } }, 'Viber') : null,
-      num ? h('a', { class: 'btn', href: '#', onclick: e => { e.preventDefault(); window.open('https://wa.me/' + num.replace('+', '') + '?text=' + enc(), '_blank'); } }, 'WhatsApp') : null,
-      r.email ? h('a', { class: 'btn', href: '#', onclick: e => { e.preventDefault(); location.href = 'mailto:' + r.email + '?subject=' + encodeURIComponent(KIND[k][0] + ' κράτησης — ' + S.settings.shop_name) + '&body=' + enc(); } }, 'Email') : null,
-      h('button', { class: 'btn', onclick: copy }, 'Αντιγραφή'));
+    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    // αντιγραφή αμέσως μέσα στο πάτημα (χωρίς αναμονή), ώστε η συσκευή να επιτρέψει μετά το άνοιγμα της εφαρμογής
+    const copyNow = () => {
+      let ok = false;
+      try { ta.focus(); ta.select(); ok = document.execCommand('copy'); } catch (e) {}
+      try { if (navigator.clipboard) navigator.clipboard.writeText(ta.value).catch(() => {}); ok = true; } catch (e) {}
+      try { ta.setSelectionRange(0, 0); ta.blur(); } catch (e) {}
+      return ok;
+    };
+    // οι σύνδεσμοι είναι πραγματικά <a href>, ώστε το άνοιγμα να γίνεται απευθείας από το πάτημα
+    const link = (label, cls, hrefFn, extra) => {
+      const a = h('a', Object.assign({ class: 'btn ' + (cls || ''), rel: 'noopener' }, extra || {}), label);
+      a._href = hrefFn; return a;
+    };
+    const links = [];
+    if (num) {
+      links.push(link([svg(IC.msg), 'Viber'], 'ch-viber', () => 'viber://forward?text=' + encodeURIComponent(ta.value), {
+        title: 'Ανοίγει το Viber με έτοιμο το μήνυμα — διαλέγεις τον πελάτη από τις επαφές',
+        onclick: () => { copyNow(); toast('Διάλεξε τον πελάτη στο Viber και πάτα αποστολή'); }
+      }));
+      links.push(link('Viber στον αριθμό', 'ch-viber2', () => 'viber://chat?number=' + encodeURIComponent(num) + '&draft=' + encodeURIComponent(ta.value), {
+        title: 'Ανοίγει συνομιλία με τον αριθμό του πελάτη (και αν δεν είναι στις επαφές)',
+        onclick: () => { copyNow(); toast('Αν το μήνυμα δεν μπει μόνο του: πάτημα παρατεταμένα → Επικόλληση'); }
+      }));
+      links.push(link('WhatsApp', '', () => 'https://wa.me/' + num.replace('+', '') + '?text=' + encodeURIComponent(ta.value), { target: '_blank' }));
+      links.push(link('SMS', '', () => 'sms:' + num + (isIOS ? '&' : '?') + 'body=' + encodeURIComponent(ta.value)));
+    }
+    if (r.email) links.push(link('Email', '', () => 'mailto:' + r.email + '?subject=' + encodeURIComponent(KIND[k][0] + ' κράτησης — ' + S.settings.shop_name) + '&body=' + encodeURIComponent(ta.value)));
+    const syncLinks = () => links.forEach(a => { a.href = a._href(); });
+    syncLinks();
+    ta.addEventListener('input', syncLinks);
+    seg.addEventListener('click', () => setTimeout(syncLinks, 0));
+    const ch = h('div', { class: 'channels' }, links,
+      h('button', { class: 'btn', onclick: () => { const ok = copyNow(); toast(ok ? 'Αντιγράφηκε' : 'Δεν έγινε αντιγραφή — επίλεξε το κείμενο χειροκίνητα', !ok); } }, 'Αντιγραφή'));
     const markBtn = h('button', { class: 'btn primary', onclick: async () => {
       const field = KIND[k][2];
       if (field) { try { await S.store.patchReservation(r.id, { [field]: new Date().toISOString() }); toast('Σημειώθηκε ως σταλμένο'); reload(); } catch (e) { toast(e.message, true); } }
@@ -525,7 +559,9 @@
     } }, 'Στάλθηκε ✓');
     const close = openModal('Μήνυμα σε ' + r.name, [
       seg, ta,
-      h('div', { class: 'hint' }, num ? 'Στο Viber το κείμενο αντιγράφεται — κάνε επικόλληση στη συνομιλία.' : 'Δεν υπάρχει κινητό — μόνο email.'),
+      h('div', { class: 'hint' }, num
+        ? h('span', null, h('b', null, 'Viber:'), ' ανοίγει με έτοιμο το μήνυμα και διαλέγεις τον πελάτη. ', h('b', null, 'Viber στον αριθμό:'), ' ανοίγει κατευθείαν τη συνομιλία με τον πελάτη, ακόμα κι αν δεν τον έχεις στις επαφές. Αν το μήνυμα δεν μπει μόνο του, κάνε Επικόλληση (έχει ήδη αντιγραφεί). Στο PC χρειάζεται εγκατεστημένο το Viber Desktop.')
+        : 'Δεν υπάρχει κινητό — μόνο email.'),
       ch
     ], [h('button', { class: 'btn left', onclick: () => { close(); if (after) after(); } }, 'Αργότερα'), markBtn]);
   }
@@ -627,7 +663,9 @@
         tablesBox.append(h('div', null, h('div', { class: 'area-label' }, g.name), chips));
       }
       const seats = r.table_ids.reduce((s, id) => s + ((S.tables.find(t => Number(t.id) === id) || {}).seats || 0), 0);
-      capInfo.textContent = r.table_ids.length ? 'Επιλεγμένα: ' + tableNames(r.table_ids) + ' · ' + seats + ' θέσεις' : 'Κανένα τραπέζι — μπορείς να το ορίσεις και αργότερα';
+      capInfo.textContent = r.table_ids.length > 1 ? '⛓ Ενωμένα: ' + tableNames(r.table_ids) + ' · ' + seats + ' θέσεις'
+        : r.table_ids.length ? 'Επιλεγμένο: ' + tableNames(r.table_ids) + ' · ' + seats + ' θέσεις'
+        : 'Κανένα τραπέζι — πάτα όσα θέλεις να ενώσεις ή «Αυτόματη ανάθεση»';
     }
 
     function showWarnings() {
@@ -755,7 +793,7 @@
     const body = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '14px' } });
     const seg = h('div', { class: 'seg', style: { flexWrap: 'wrap' } });
     const tabs = isAdmin()
-      ? { general: 'Γενικά', look: 'Εμφάνιση', users: 'Χρήστες', hours: 'Ωράριο', closures: 'Αργίες', tables: 'Χώροι & τραπέζια', msgs: 'Μηνύματα' }
+      ? { general: 'Γενικά', look: 'Εμφάνιση', users: 'Χρήστες', hours: 'Ωράριο', closures: 'Ειδικές μέρες', tables: 'Χώροι & τραπέζια', msgs: 'Μηνύματα' }
       : { look: 'Εμφάνιση' };
     const drawSeg = () => { seg.innerHTML = ''; for (const k in tabs) seg.append(h('button', { class: tab === k ? 'on' : '', onclick: () => { tab = k; drawSeg(); draw(); } }, tabs[k])); };
     const content = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px' } });
@@ -813,20 +851,87 @@
           h('div', { style: { display: 'flex', justifyContent: 'flex-end' } }, h('button', { class: 'btn primary', onclick: saveSettings }, 'Αποθήκευση ωραρίου')));
       }
       if (tab === 'closures') {
-        const d = h('input', { class: 'input', type: 'date' });
-        const n = h('input', { class: 'input', placeholder: 'π.χ. Πάσχα, άδεια' });
-        content.append(h('div', { class: 'row', style: { alignItems: 'flex-end' } },
-          h('label', { class: 'field' }, 'Ημερομηνία', d), h('label', { class: 'field' }, 'Σημείωση', n),
-          h('button', { class: 'btn primary', style: { flex: '0 0 auto' }, onclick: async () => {
-            if (!d.value) return;
-            try { await S.store.addClosure(d.value, n.value.trim() || null); S.closures = await S.store.listClosures(); draw(); reload(); } catch (e) { toast(e.message, true); }
-          } }, 'Προσθήκη')));
         const today = L.fmtDate(new Date());
-        const list = S.closures.filter(c => c.day >= today);
-        if (!list.length) content.append(h('p', { class: 'hint' }, 'Δεν υπάρχουν προγραμματισμένες κλειστές μέρες.'));
-        for (const c of list) content.append(h('div', { class: 'list-line' },
-          h('span', null, h('b', null, L.dayName(c.day) + ' ' + L.grDate(c.day)), c.note ? ' — ' + c.note : ''),
-          h('button', { class: 'btn small danger', onclick: async () => { try { await S.store.deleteClosure(c.day); S.closures = await S.store.listClosures(); draw(); reload(); } catch (e) { toast(e.message, true); } } }, 'Αφαίρεση')));
+        st.special_hours = st.special_hours || {};
+        // νέα ειδική μέρα
+        let kind = 'special';
+        const d = h('input', { class: 'input', type: 'date', min: today });
+        const n = h('input', { class: 'input', placeholder: 'π.χ. Πάσχα, γιορτή, εκδήλωση' });
+        const periods = [{ open: '12:00', close: '17:00' }, { open: '19:00', close: '00:00' }];
+        const kindSeg = h('div', { class: 'seg' });
+        const pWrap = h('div', { class: 'periods' });
+        const weekly = h('div', { class: 'hint' });
+        const drawKind = () => {
+          kindSeg.innerHTML = '';
+          [['special', '★ Ειδικό ωράριο'], ['closed', 'Κλειστά']].forEach(([k, l]) => kindSeg.append(h('button', { class: kind === k ? 'on' : '', onclick: () => { kind = k; drawKind(); } }, l)));
+          pWrap.style.display = kind === 'special' ? '' : 'none';
+        };
+        const drawP = () => {
+          pWrap.innerHTML = '';
+          periods.forEach((p, i) => pWrap.append(h('div', { class: 'period' },
+            h('input', { class: 'input', type: 'time', value: p.open, onchange: e => { p.open = e.target.value; } }), '–',
+            h('input', { class: 'input', type: 'time', value: p.close, onchange: e => { p.close = e.target.value; } }),
+            periods.length > 1 ? h('button', { class: 'btn ghost small', 'aria-label': 'Αφαίρεση', onclick: () => { periods.splice(i, 1); drawP(); } }, svg(IC.x)) : null)));
+          if (periods.length < 3) pWrap.append(h('div', null, h('button', { class: 'btn small', onclick: () => { periods.push({ open: '18:00', close: '23:30' }); drawP(); } }, '+ βάρδια')));
+        };
+        const showWeekly = () => {
+          if (!d.value) { weekly.textContent = ''; return; }
+          const wk = (st.hours || {})[String(L.weekday(d.value))] || [];
+          weekly.textContent = 'Κανονικά ' + L.dayName(d.value) + ': ' + (wk.length ? L.periodsText(wk) : 'κλειστά');
+          if (wk.length && !d._touched) { periods.splice(0, periods.length, ...wk.map(p => ({ open: p.open, close: p.close }))); drawP(); }
+        };
+        d.addEventListener('change', showWeekly);
+        drawKind(); drawP();
+        const addBtn = h('button', { class: 'btn primary', onclick: async () => {
+          if (!d.value) { toast('Διάλεξε ημερομηνία', true); return; }
+          addBtn.disabled = true;
+          try {
+            if (kind === 'closed') {
+              if (st.special_hours[d.value]) { delete st.special_hours[d.value]; await S.store.saveSettings(st); }
+              await S.store.addClosure(d.value, n.value.trim() || null);
+            } else {
+              const ps = periods.filter(p => p.open && p.close);
+              if (!ps.length) { toast('Βάλε τουλάχιστον μία βάρδια', true); addBtn.disabled = false; return; }
+              if (S.closures.some(c => c.day === d.value)) await S.store.deleteClosure(d.value);
+              // καθάρισμα παλιών ειδικών ημερών (πάνω από 60 μέρες πριν)
+              const old = L.addDays(today, -60);
+              Object.keys(st.special_hours).forEach(k => { if (k < old) delete st.special_hours[k]; });
+              st.special_hours[d.value] = { periods: ps.map(p => ({ open: p.open, close: p.close })), note: n.value.trim() || null };
+              await S.store.saveSettings(st);
+            }
+            S.settings = Object.assign({}, DEFAULT_SETTINGS, st);
+            S.closures = await S.store.listClosures();
+            toast('Αποθηκεύτηκε: ' + L.dayName(d.value) + ' ' + L.grDate(d.value));
+            draw(); reload();
+          } catch (e) { toast(e.message, true); addBtn.disabled = false; }
+        } }, svg(IC.plus), 'Προσθήκη');
+        content.append(
+          h('p', { class: 'hint', style: { margin: 0 } }, 'Για συγκεκριμένες ημερομηνίες που διαφέρουν από το κανονικό ωράριο: γιορτές, εκδηλώσεις, άδειες. Εκείνη τη μέρα ισχύει μόνο αυτό.'),
+          h('div', { class: 'special-form' },
+            h('div', { class: 'grid2' }, h('label', { class: 'field' }, 'Ημερομηνία', d, weekly), h('div', { class: 'field' }, h('span', null, 'Τι ισχύει'), kindSeg)),
+            pWrap,
+            h('label', { class: 'field' }, 'Σημείωση', n),
+            h('div', { style: { display: 'flex', justifyContent: 'flex-end' } }, addBtn)));
+
+        // λίστα επόμενων ειδικών ημερών
+        const items = [];
+        S.closures.filter(c => c.day >= today).forEach(c => items.push({ day: c.day, closed: true, note: c.note }));
+        Object.keys(st.special_hours).filter(k => k >= today && !S.closures.some(c => c.day === k))
+          .forEach(k => items.push({ day: k, closed: false, note: st.special_hours[k].note, periods: st.special_hours[k].periods }));
+        items.sort((a, b) => a.day < b.day ? -1 : 1);
+        content.append(h('div', { class: 'section-title', style: { marginTop: '6px' } }, 'Επόμενες ειδικές μέρες'));
+        if (!items.length) content.append(h('p', { class: 'hint', style: { margin: 0 } }, 'Δεν υπάρχουν. Όλες οι μέρες ακολουθούν το κανονικό ωράριο.'));
+        for (const it of items) content.append(h('div', { class: 'list-line' },
+          h('span', { class: 'sp-tag ' + (it.closed ? 'closed' : 'open') }, it.closed ? 'Κλειστά' : '★ Ειδικό'),
+          h('span', null, h('b', null, L.dayName(it.day) + ' ' + L.grDate(it.day)),
+            it.closed ? '' : ' · ' + L.periodsText(it.periods), it.note ? h('span', { class: 'hint' }, ' — ' + it.note) : null),
+          h('button', { class: 'btn small danger', onclick: async () => {
+            try {
+              if (it.closed) await S.store.deleteClosure(it.day);
+              else { delete st.special_hours[it.day]; await S.store.saveSettings(st); S.settings = Object.assign({}, DEFAULT_SETTINGS, st); }
+              S.closures = await S.store.listClosures(); draw(); reload();
+            } catch (e) { toast(e.message, true); }
+          } }, 'Αφαίρεση')));
       }
       if (tab === 'tables') {
         const groups = S.areas.map(a => ({ a, ts: S.tables.filter(t => String(t.area_id) === String(a.id)) }));

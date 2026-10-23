@@ -35,13 +35,23 @@
   /* Περίοδοι λειτουργίας για μια ημερομηνία: [{start, end}] σε λεπτά βάρδιας */
   function periodsFor(settings, date, closures) {
     if (closures && closures.some(c => c.day === date)) return [];
-    const list = (settings.hours || {})[String(weekday(date))] || [];
+    const sp = specialFor(settings, date);
+    const list = sp ? (sp.periods || []) : ((settings.hours || {})[String(weekday(date))] || []);
     return list.map(p => {
       const s = toMin(p.open);
       let e = toMin(p.close);
       if (e <= s) e += 1440;               // κλείνει μετά τα μεσάνυχτα
       return { start: s, end: e };
     }).filter(p => p.end > p.start).sort((a, b) => a.start - b.start);
+  }
+
+  /* Ειδικό ωράριο για συγκεκριμένη ημερομηνία (αντικαθιστά το εβδομαδιαίο) */
+  function specialFor(settings, date) {
+    const sp = settings && settings.special_hours && settings.special_hours[date];
+    return sp && Array.isArray(sp.periods) ? sp : null;
+  }
+  function periodsText(periods) {
+    return (periods || []).map(p => p.open + '–' + p.close).join(', ');
   }
 
   /* Διαθέσιμες ώρες κράτησης (τελευταία κράτηση = κλείσιμο − 1 slot) */
@@ -216,7 +226,7 @@
 
   const api = {
     ACTIVE, DAY_NAMES, toMin, svcMin, fromMin, parseDate, fmtDate, addDays, weekday, dayName, prettyDate, grDate,
-    periodsFor, slotsFor, timelineRange, isActive, overlaps, coversAt, peakCovers, tableConflict, freeTables,
+    periodsFor, specialFor, periodsText, slotsFor, timelineRange, isActive, overlaps, coversAt, peakCovers, tableConflict, freeTables,
     suggestTables, tableCenter, validate, fillTemplate, intlPhone, normPhone
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

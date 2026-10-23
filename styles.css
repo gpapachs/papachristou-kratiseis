@@ -181,6 +181,15 @@ input[type=checkbox] { accent-color: var(--accent); width: 18px; height: 18px; }
 .closed-banner { max-width: 1280px; margin: 12px auto 0; padding: 0 16px; }
 .closed-banner div { background: var(--butter); color: var(--butter-ink); border-radius: var(--radius-sm); padding: 12px 16px; font-weight: 600; }
 
+.closed-banner div.special { background: var(--accent-soft); color: var(--accent-text); }
+.special-form { display: flex; flex-direction: column; gap: 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 14px; }
+.special-form .periods { display: flex; flex-direction: column; gap: 6px; }
+.special-form .period { display: flex; gap: 6px; align-items: center; color: var(--ink-3); }
+.special-form .period .input { width: 120px; min-height: 38px; padding: 4px 10px; }
+.sp-tag { flex: 0 0 auto !important; font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
+.sp-tag.open { background: var(--accent-soft); color: var(--accent-text); }
+.sp-tag.closed { background: var(--rose); color: var(--rose-ink); }
+
 /* ---------- Σύνοψη ---------- */
 .summary { max-width: 1280px; margin: 18px auto 0; padding: 0 16px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .stat {
@@ -409,8 +418,8 @@ input[type=checkbox] { accent-color: var(--accent); width: 18px; height: 18px; }
 .fp-time { width: auto; min-height: 36px; border-radius: 999px; background: var(--surface); padding: 4px 12px; font-weight: 700; }
 .fp-live { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 16px; align-items: start; }
 @media (max-width: 960px) { .fp-live { grid-template-columns: 1fr; } }
-.fp-stage { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 10px; overflow: auto; }
-.fp-stage .fp-svg { display: block; width: 100%; height: auto; min-width: 560px; }
+.fp-stage { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 10px; overflow: hidden; display: flex; justify-content: center; align-items: center; }
+.fp-stage .fp-svg { display: block; max-width: 100%; }
 .fp-side { display: flex; flex-direction: column; gap: 12px; }
 .fp-card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 16px; }
 .fp-sum-t { font-weight: 700; font-size: 15px; margin-bottom: 8px; }
@@ -432,6 +441,21 @@ input[type=checkbox] { accent-color: var(--accent); width: 18px; height: 18px; }
 .fp-res span:nth-child(2) { flex: 1; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fp-res:hover { border-color: var(--accent); }
 .fp-res.on { background: var(--accent-soft); border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+
+/* Ένωση τραπεζιών */
+.fp-join-btn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
+.fp-joinbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; background: var(--accent-soft); border: 1.5px dashed color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: var(--radius-sm); padding: 8px 12px; margin-bottom: 10px; }
+.fp-join-info { display: flex; gap: 10px; align-items: baseline; flex: 1 1 200px; min-width: 0; color: var(--accent-text); font-size: 14px; }
+.fp-join-info b { font-size: 15px; }
+.fp-join-acts { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.fp-join-res { width: auto; min-height: 32px; padding: 2px 10px; font-size: 13px; border-radius: 999px; max-width: 230px; background: var(--surface); }
+.fp-join { stroke-width: 26; stroke-linecap: round; opacity: .55; pointer-events: none; }
+.fp-join.j-reserved { stroke: color-mix(in srgb, var(--sky-ink) 45%, var(--sky)); }
+.fp-join.j-seated   { stroke: color-mix(in srgb, var(--accent) 45%, var(--surface)); }
+.fp-join.j-soon     { stroke: color-mix(in srgb, var(--peach-ink) 40%, var(--peach)); }
+.fp-join.j-picked   { stroke: var(--accent); opacity: .4; }
+@media (max-width: 640px) { .fp-toolbar .fp-join-btn span { display: none; } }
 
 /* SVG στοιχεία */
 .fp-svg text { font-family: inherit; }
@@ -477,6 +501,20 @@ input[type=checkbox] { accent-color: var(--accent); width: 18px; height: 18px; }
 .z-rose   { fill: color-mix(in srgb, var(--rose) 75%, transparent);   stroke: color-mix(in srgb, var(--rose-ink) 35%, transparent); }
 .z-butter { fill: color-mix(in srgb, var(--butter) 75%, transparent); stroke: color-mix(in srgb, var(--butter-ink) 35%, transparent); }
 
+/* Στην κάτοψη, σε μικρές/χαμηλές οθόνες, κρύβεται η σύνοψη για να μείνει χώρος */
+@media (max-width: 900px), (max-height: 900px) {
+  .view-floor .summary, .view-floor .closed-banner { display: none; }
+  .view-floor .tabs { margin-top: 12px; }
+  .view-floor .main { padding-top: 10px; }
+  .view-floor .fp-toolbar { gap: 6px; margin-bottom: 10px; }
+  .view-floor .fp-stage { padding: 6px; }
+}
+@media (max-width: 640px) {
+  .view-floor .datebar { padding-top: 12px; }
+  .view-floor .datebar h1 { font-size: 20px; margin-bottom: 2px; }
+  .fp-toolbar .fp-edit-btn span { display: none; }
+}
+
 /* ---------- Σχεδιαστής κάτοψης ---------- */
 .fp-editor { position: fixed; inset: 0; z-index: 45; background: var(--bg); display: grid; grid-template-rows: auto minmax(0, 1fr); animation: fade .15s ease-out; }
 .fp-ehead { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 16px; padding-top: max(10px, env(safe-area-inset-top));
@@ -521,7 +559,7 @@ input[type=checkbox] { accent-color: var(--accent); width: 18px; height: 18px; }
   .fp-palette { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 10px 12px; }
   .fp-pal-title { display: none; }
   .fp-pal-btn { flex: 0 0 auto; }
-  .fp-ecanvas { max-height: 70vh; padding: 10px; }
+  .fp-ecanvas { padding: 10px; overflow: auto; max-height: 75vh; }
   .fp-ehead h2 { display: none; }
   .fp-props { border-left: 0; border-top: 1px solid var(--line); padding-bottom: 40px; }
 }
