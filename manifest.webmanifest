@@ -1,0 +1,20 @@
+{
+  "name": "Κρατήσεις — Ψητοπωλείο Παπαχρήστου",
+  "short_name": "Κρατήσεις",
+  "description": "Διαχείριση κρατήσεων, κάτοψη και τραπέζια",
+  "lang": "el",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f6f4fb",
+  "theme_color": "#f6f4fb",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Νέα κράτηση", "url": "./?new=1", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}
