@@ -352,7 +352,10 @@ input[type=checkbox] { accent-color: var(--accent); width: 18px; height: 18px; }
 .pax-pick button { width: 44px; height: 44px; border-radius: 14px; border: 1px solid var(--line-2); background: var(--surface-2); font-weight: 700; transition: .12s; }
 .pax-pick button:hover { border-color: var(--accent); }
 .pax-pick button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); box-shadow: 0 6px 14px -6px color-mix(in srgb, var(--accent) 80%, transparent); }
-.pax-pick input { width: 78px; flex: 0 0 78px; border-radius: 14px; }
+.pax-pick input { width: 78px; flex: 0 0 78px; border-radius: 14px; text-align: center; font-weight: 700; }
+.pax-pick input.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); color: var(--accent-text); }
+.pax-step { display: inline-flex; gap: 4px; }
+.pax-step button { width: 44px; height: 44px; border-radius: 14px; font-size: 20px; line-height: 1; }
 
 .tables-pick { display: flex; flex-direction: column; gap: 10px; }
 .tables-pick .area-label { font-size: 12px; font-weight: 700; color: var(--ink-3); margin-bottom: 6px; }
@@ -603,3 +606,7 @@ input[type=checkbox] { accent-color: var(--accent); width: 18px; height: 18px; }
   .card .time { background: none !important; color: #000 !important; }
   .main { padding: 0; }
 }
+
+/* Φόρμα κράτησης: η γραμμή «Τραπέζι» (χώρος + αυτόματη ανάθεση) αναδιπλώνεται σε μικρές οθόνες */
+.modal .section-title > span:last-child { flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 560px) { .modal .section-title > span:last-child { width: 100%; justify-content: flex-start; } }

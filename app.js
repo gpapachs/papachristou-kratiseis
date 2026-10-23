@@ -1,7 +1,7 @@
 /* Κρατήσεις — Ψητοπωλείο Παπαχρήστου */
 (function () {
   'use strict';
-  const VERSION = '1.5.1';
+  const VERSION = '1.5.2';
   const L = window.Logic;
 
   const DEFAULT_SETTINGS = {
@@ -608,14 +608,34 @@
 
     // άτομα
     const paxWrap = h('div', { class: 'pax-pick' });
-    const paxOther = h('input', { class: 'input', type: 'number', min: 1, max: 200, placeholder: '9+' });
+    const paxOther = h('input', { class: 'input pax-num', type: 'text', inputmode: 'numeric', pattern: '[0-9]*', maxlength: 3, placeholder: '9+', 'aria-label': 'Άτομα (περισσότερα από 8)' });
+    const paxBtns = [];
+    const setPax = (n, fromInput) => {
+      n = Math.max(1, Math.min(300, n | 0));
+      r.party_size = n;
+      paxBtns.forEach((b, i) => b.classList.toggle('on', n === i + 1));
+      paxOther.classList.toggle('on', n > 8);
+      if (!fromInput) paxOther.value = n > 8 ? String(n) : '';
+      refresh();
+    };
+    for (let i = 1; i <= 8; i++) paxBtns.push(h('button', { type: 'button', onclick: () => setPax(i) }, i));
     const drawPax = () => {
       paxWrap.innerHTML = '';
-      for (let i = 1; i <= 8; i++) paxWrap.append(h('button', { type: 'button', class: r.party_size === i ? 'on' : '', onclick: () => { r.party_size = i; paxOther.value = ''; drawPax(); refresh(); } }, i));
-      paxOther.value = r.party_size > 8 ? r.party_size : '';
-      paxWrap.append(paxOther);
+      paxWrap.append(...paxBtns, paxOther,
+        h('div', { class: 'pax-step' },
+          h('button', { type: 'button', 'aria-label': 'Ένα άτομο λιγότερο', onclick: () => setPax(r.party_size - 1) }, '−'),
+          h('button', { type: 'button', 'aria-label': 'Ένα άτομο περισσότερο', onclick: () => setPax(r.party_size + 1) }, '+')));
+      paxBtns.forEach((b, i) => b.classList.toggle('on', r.party_size === i + 1));
+      paxOther.classList.toggle('on', r.party_size > 8);
+      paxOther.value = r.party_size > 8 ? String(r.party_size) : '';
     };
-    paxOther.addEventListener('input', () => { const n = parseInt(paxOther.value, 10); if (n > 0) { r.party_size = n; drawPax(); paxOther.focus(); refresh(); } });
+    // γράφεις ελεύθερα (π.χ. 12, 25): η τιμή δεν σβήνεται όσο πληκτρολογείς
+    paxOther.addEventListener('input', () => {
+      paxOther.value = paxOther.value.replace(/\D/g, '');
+      const n = parseInt(paxOther.value, 10);
+      if (n > 0) setPax(n, true);
+    });
+    paxOther.addEventListener('blur', () => { if (!paxOther.value && r.party_size > 8) paxOther.value = String(r.party_size); });
 
     // περιοχή
     const areaSeg = h('div', { class: 'seg' });
