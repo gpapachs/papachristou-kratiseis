@@ -1,7 +1,7 @@
 /* Κρατήσεις — Ψητοπωλείο Παπαχρήστου */
 (function () {
   'use strict';
-  const VERSION = '1.6.0';
+  const VERSION = '1.6.1';
   const L = window.Logic;
 
   const DEFAULT_SETTINGS = {
@@ -230,7 +230,15 @@
     }, 250);
   }
 
+  /* Χωρητικότητα: αυτόματα = θέσεις όλων των ενεργών τραπεζιών (εκτός αν ο διαχειριστής βάλει δικό του αριθμό) */
+  function seatsTotal() { return S.tables.filter(t => t.active !== false).reduce((s, t) => s + (+t.seats || 0), 0); }
+  function applyCapacity() {
+    const seats = seatsTotal();
+    if (!S.settings.capacity_manual && seats > 0) S.settings.max_covers_per_slot = seats;
+  }
+
   async function reload() {
+    applyCapacity();
     const today = L.fmtDate(new Date());
     try {
       const [day, up] = await Promise.all([
@@ -914,7 +922,20 @@
         content.append(
           h('div', { class: 'grid2' }, txt('shop_name', 'Όνομα καταστήματος'), txt('shop_phone', 'Τηλέφωνο καταστήματος (μπαίνει στα μηνύματα)')),
           h('div', { class: 'grid2' },
-            num('max_covers_per_slot', 'Μέγιστα άτομα ταυτόχρονα', 'Πάνω από αυτό εμφανίζεται προειδοποίηση.'),
+            (() => {
+              const seats = seatsTotal();
+              const inp = h('input', { class: 'input', type: 'number', min: 1, value: st.capacity_manual ? st.max_covers_per_slot : seats,
+                disabled: !st.capacity_manual, oninput: e => { st.max_covers_per_slot = parseInt(e.target.value, 10) || 0; } });
+              const chk = h('input', { type: 'checkbox', checked: !st.capacity_manual, onchange: e => {
+                st.capacity_manual = !e.target.checked;
+                inp.disabled = !st.capacity_manual;
+                if (!st.capacity_manual) { inp.value = seats; st.max_covers_per_slot = seats; }
+              } });
+              return h('div', { class: 'field' }, h('span', null, 'Χωρητικότητα (μέγιστα άτομα ταυτόχρονα)'), inp,
+                h('label', { class: 'fp-check', style: { fontSize: '13px', fontWeight: 500 } }, chk,
+                  h('span', null, 'Αυτόματα από τα τραπέζια (' + seats + ' θέσεις)')),
+                h('span', { class: 'hint' }, 'Πάνω από αυτό εμφανίζεται προειδοποίηση. Βγάλε το τικ για δικό σου αριθμό (π.χ. αν η κουζίνα βγάζει λιγότερους).'));
+            })(),
             num('duration_minutes', 'Προεπιλεγμένη διάρκεια (λεπτά)', 'Πόση ώρα «κρατάει» το τραπέζι μια κράτηση.')),
           h('div', { class: 'grid2' },
             h('label', { class: 'field' }, 'Βήμα ωρών κράτησης', (() => {
