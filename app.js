@@ -1,7 +1,7 @@
 /* Κρατήσεις — Ψητοπωλείο Παπαχρήστου */
 (function () {
   'use strict';
-  const VERSION = '1.5.2';
+  const VERSION = '1.6.0';
   const L = window.Logic;
 
   const DEFAULT_SETTINGS = {
@@ -328,7 +328,8 @@
     const tabs = $('#tabs'); tabs.innerHTML = '';
     const tab = (id, label, badge) => h('button', { class: 'tab' + (S.view === id ? ' on' : ''),
       onclick: () => { S.view = id; renderTabs(); renderView(); } }, label, badge ? h('span', { class: 'badge' }, badge) : null);
-    tabs.append(tab('list', 'Λίστα'), tab('floor', 'Κάτοψη'), tab('tables', 'Χρονοδιάγραμμα'), tab('msgs', 'Μηνύματα', cnt || null));
+    tabs.append(tab('list', 'Λίστα'), tab('floor', 'Κάτοψη'), tab('tables', 'Χρονοδιάγραμμα'), tab('days', 'Ημέρες'), tab('msgs', 'Μηνύματα', cnt || null));
+    const on = tabs.querySelector('.tab.on'); if (on && tabs.scrollWidth > tabs.clientWidth) tabs.scrollLeft = Math.max(0, on.offsetLeft - 24);
   }
 
   function renderView() {
@@ -337,6 +338,7 @@
     if (S.view === 'list') renderList(v);
     else if (S.view === 'tables') renderTimeline(v);
     else if (S.view === 'floor') FP.renderLive(v);
+    else if (S.view === 'days') renderDays(v);
     else renderMessages(v);
   }
 
@@ -484,6 +486,82 @@
       if (S.date === L.fmtDate(new Date())) { const n = new Date(); let m = n.getHours() * 60 + n.getMinutes(); if (m < 300) m += 1440; target = m - 60; }
       if (target != null) wrap.scrollLeft = Math.max(0, px(target) - 20);
     });
+  }
+
+  /* ---------- Σύνολα ανά ημέρα ---------- */
+  async function renderDays(v) {
+    const span = S.daysSpan || 14;
+    if (!S.daysFrom) S.daysFrom = L.fmtDate(new Date());
+    const from = S.daysFrom, to = L.addDays(from, span - 1);
+    const head = h('div', { class: 'days-head' },
+      h('div', { class: 'seg' }, [[7, 'Εβδομάδα'], [14, '2 εβδομάδες'], [31, 'Μήνας']].map(([n, l]) =>
+        h('button', { class: span === n ? 'on' : '', onclick: () => { S.daysSpan = n; renderView(); } }, l))),
+      h('div', { class: 'fp-timebox' },
+        h('button', { class: 'btn icon small', 'aria-label': 'Προηγούμενες', onclick: () => { S.daysFrom = L.addDays(from, -span); renderView(); } }, svg(IC.left)),
+        h('span', { class: 'days-range' }, L.prettyDate(from) + ' – ' + L.prettyDate(to)),
+        h('button', { class: 'btn icon small', 'aria-label': 'Επόμενες', onclick: () => { S.daysFrom = L.addDays(from, span); renderView(); } }, svg(IC.right)),
+        h('button', { class: 'btn small', onclick: () => { S.daysFrom = L.fmtDate(new Date()); renderView(); } }, 'Από σήμερα')));
+    v.append(head);
+    const box = h('div', null, h('p', { class: 'hint' }, 'Φόρτωση…'));
+    v.append(box);
+    let list = [];
+    try { list = await S.store.listReservations(from, to); } catch (e) { box.innerHTML = ''; box.append(h('div', { class: 'warnbox err' }, e.message)); return; }
+    if (S.view !== 'days' || S.daysFrom !== from || (S.daysSpan || 14) !== span) return;   // άλλαξε στο μεταξύ
+    box.innerHTML = '';
+
+    const days = [];
+    for (let i = 0; i < span; i++) {
+      const d = L.addDays(from, i);
+      const rs = list.filter(r => r.res_date === d);
+      const act = rs.filter(r => r.status !== 'cancelled' && r.status !== 'noshow');
+      const lunch = act.filter(r => L.svcMin(r.res_time) < 17 * 60);
+      const ps = L.periodsFor(S.settings, d, S.closures);
+      let peak = 0; for (const m of L.slotsFor(S.settings, d, S.closures)) peak = Math.max(peak, L.coversAt(act, m));
+      days.push({
+        d, res: act.length, pax: act.reduce((s, r) => s + r.party_size, 0),
+        lunchPax: lunch.reduce((s, r) => s + r.party_size, 0), lunchRes: lunch.length,
+        cancelled: rs.length - act.length, noTable: act.filter(r => !(r.table_ids || []).length).length,
+        peak, closed: !ps.length, special: !!L.specialFor(S.settings, d)
+      });
+    }
+    const tot = days.reduce((a, x) => ({ res: a.res + x.res, pax: a.pax + x.pax, can: a.can + x.cancelled }), { res: 0, pax: 0, can: 0 });
+    const open = days.filter(x => !x.closed).length || 1;
+    const best = days.slice().sort((a, b) => b.pax - a.pax)[0];
+    box.append(h('div', { class: 'summary days-sum' },
+      stat(tot.res, 'Κρατήσεις'), stat(tot.pax, 'Άτομα'),
+      stat((tot.pax / open).toFixed(1).replace('.', ','), 'Άτομα / ανοιχτή μέρα'),
+      stat(best && best.pax ? L.dayName(best.d).slice(0, 3) + ' ' + L.prettyDate(best.d) : '—', best && best.pax ? 'Πιο γεμάτη · ' + best.pax + ' άτ.' : 'Πιο γεμάτη')));
+
+    const max = Math.max(10, ...days.map(x => x.pax));
+    const today = L.fmtDate(new Date());
+    const chart = h('div', { class: 'days-chart' + (span > 14 ? ' dense' : '') }, days.map(x => h('button', {
+      class: 'day-col' + (x.d === today ? ' today' : '') + (x.closed ? ' closed' : '') + (x.d === S.date ? ' sel' : ''),
+      title: L.dayName(x.d) + ' ' + L.grDate(x.d) + '\n' + x.res + ' κρατήσεις · ' + x.pax + ' άτομα' + (x.lunchPax ? '\nΜεσημέρι ' + x.lunchPax + ' · Βράδυ ' + (x.pax - x.lunchPax) : '') + (x.cancelled ? '\nΑκυρώσεις/δεν ήρθαν: ' + x.cancelled : '') + '\nΠάτα για τη λίστα της ημέρας',
+      onclick: () => { S.view = 'list'; setDate(x.d); }
+    },
+      h('span', { class: 'day-num' }, x.pax || ''),
+      h('div', { class: 'day-track' },
+        h('div', { class: 'day-fill eve', style: { height: ((x.pax - x.lunchPax) / max * 100) + '%' } }),
+        h('div', { class: 'day-fill lunch', style: { height: (x.lunchPax / max * 100) + '%' } })),
+      h('small', { class: 'day-name' }, x.closed ? 'κλ.' : L.dayName(x.d).slice(0, 2) + (x.special ? '★' : '')),
+      h('small', { class: 'day-date' }, x.d.slice(8) + '/' + x.d.slice(5, 7)))));
+    box.append(h('div', { class: 'load days-card' },
+      h('div', { class: 'load-head' }, h('span', null, 'Άτομα ανά ημέρα'),
+        h('span', { class: 'days-legend' }, h('i', { class: 'lg-lunch' }), 'Μεσημέρι', h('i', { class: 'lg-eve' }), 'Βράδυ')),
+      chart));
+
+    // πίνακας
+    const rows = days.filter(x => x.res || x.cancelled || x.closed || x.special);
+    box.append(h('div', { class: 'days-table' },
+      h('div', { class: 'dt-row dt-head' }, h('span', null, 'Ημέρα'), h('span', null, 'Κρατ.'), h('span', null, 'Άτομα'), h('span', { class: 'hide-sm' }, 'Μεσημ. / Βράδυ'), h('span', { class: 'hide-sm' }, 'Αιχμή'), h('span', null, '')),
+      rows.length ? rows.map(x => h('button', { class: 'dt-row' + (x.d === today ? ' today' : ''), onclick: () => { S.view = 'list'; setDate(x.d); } },
+        h('span', null, h('b', null, L.dayName(x.d).slice(0, 3) + ' ' + L.grDate(x.d).slice(0, 5)), x.closed ? h('span', { class: 'sp-tag closed' }, 'Κλειστά') : x.special ? h('span', { class: 'sp-tag open' }, '★') : null),
+        h('span', null, x.res),
+        h('span', null, h('b', null, x.pax)),
+        h('span', { class: 'hide-sm' }, x.lunchPax + ' / ' + (x.pax - x.lunchPax)),
+        h('span', { class: 'hide-sm' + (x.peak > (S.settings.max_covers_per_slot || 1e9) ? ' over' : '') }, x.peak ? x.peak + '/' + S.settings.max_covers_per_slot : '—'),
+        h('span', { class: 'dt-flags' }, x.noTable ? h('span', { class: 'tag miss' }, x.noTable + ' χωρίς τραπ.') : null, x.cancelled ? h('span', { class: 'tag' }, x.cancelled + ' ακυρ.') : null)))
+        : h('div', { class: 'empty', style: { padding: '24px' } }, 'Καμία κράτηση σε αυτό το διάστημα.')));
   }
 
   /* ---------- Μηνύματα ---------- */
