@@ -221,6 +221,7 @@
         h('button', { class: 'btn fp-join-btn' + (S.joinMode ? ' on' : ''), title: 'Ένωση τραπεζιών',
           onclick: () => { S.joinMode = !S.joinMode; S.joinSel = []; S.assignId = null; api.renderView(); } }, svg(IC.link), h('span', null, 'Ένωση')),
         h('div', { style: { flex: 1 } }),
+        h('button', { class: 'btn fp-print-btn', title: 'Εκτύπωση κάτοψης (Α4, έγχρωμη)', onclick: () => openPrintFloor(area.id, T) }, svg(IC.print), h('span', null, 'Εκτύπωση')),
         api.isAdmin() ? h('button', { class: 'btn fp-edit-btn', title: 'Επεξεργασία κάτοψης', onclick: () => openEditor(area.id) }, svg(IC.edit), h('span', null, 'Επεξεργασία κάτοψης')) : null));
 
       // κάτοψη
@@ -316,6 +317,92 @@
 
       v.append(h('div', { class: 'fp-live' }, stage, side));
       fitStage(stage, area, buildSvg);
+    }
+
+
+    /* ---------- Εκτύπωση κάτοψης σε Α4 (έγχρωμη) ---------- */
+    function openPrintFloor(curId, T) {
+      const areas = clone(S.areas);
+      let which = String(curId), withList = true;
+      const seg = h('div', { class: 'seg', style: { flexWrap: 'wrap' } });
+      const drawSeg = () => {
+        seg.innerHTML = '';
+        areas.map(a => [String(a.id), a.name]).concat([['all', 'Όλοι οι χώροι']]).forEach(([v, l]) =>
+          seg.append(h('button', { class: which === v ? 'on' : '', onclick: () => { which = v; drawSeg(); } }, l)));
+      };
+      drawSeg();
+      const chk = h('input', { type: 'checkbox', checked: true, onchange: e => { withList = e.target.checked; } });
+      const close = api.openModal('Εκτύπωση κάτοψης · ' + L.fromMin(T), [
+        h('div', { class: 'field' }, h('span', { class: 'section-title' }, 'Χώρος'), seg),
+        h('label', { class: 'fp-check' }, chk, h('span', null, 'Με τη λίστα κρατήσεων της ημέρας για τον χώρο')),
+        h('p', { class: 'hint', style: { margin: 0 } }, 'Τυπώνεται σε Α4 με χρώματα: πράσινο ελεύθερο, κόκκινο κρατημένο, σκούρο κόκκινο κάθονται, πορτοκαλί κρατημένο σε λίγο — για την ώρα ' + L.fromMin(T) + '. Για άλλη ώρα άλλαξέ τη στην κάτοψη. Στο παράθυρο εκτύπωσης βάλε «Έγχρωμη» και ενεργό το «Γραφικά φόντου».')
+      ], [
+        h('button', { class: 'btn', onclick: () => close() }, 'Άκυρο'),
+        h('button', { class: 'btn primary', onclick: () => { close(); printFloor(which, T, withList); } }, svg(IC.print), 'Εκτύπωση')
+      ]);
+    }
+
+    function printFloor(which, T, withList) {
+      const areas = clone(S.areas), tables = clone(S.tables);
+      ensureLayout(areas, tables);
+      const list = which === 'all' ? areas : areas.filter(a => sameId(a.id, which));
+      const LEG = [['free', 'Ελεύθερο'], ['soon', 'Κρατημένο σε λίγο'], ['reserved', 'Κρατημένο'], ['seated', 'Κάθονται'], ['inactive', 'Ανενεργό']];
+      const pages = list.map(area => {
+        const mine = tables.filter(t => sameId(t.area_id, area.id));
+        const ids = new Set(mine.map(t => Number(t.id)));
+        const states = new Map(mine.map(t => [t.id, tableState(t, T)]));
+        const groups = [], seen = new Set();
+        for (const t of mine) {
+          const st = states.get(t.id), r = st.res || st.soon;
+          if (!r || seen.has(r.id)) continue;
+          const m = mine.filter(x => (r.table_ids || []).map(Number).includes(Number(x.id)));
+          if (m.length > 1) { seen.add(r.id); groups.push({ cls: st.cls, m }); }
+        }
+        const joins = groups.map(g => mstEdges(g.m).map(([a, b]) => `<line class="fp-join j-${g.cls}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`).join('')).join('');
+        const W = area.width, H = area.height;
+        const svgStr = `<svg class="fp-svg" viewBox="-20 -20 ${W + 40} ${H + 40}" xmlns="http://www.w3.org/2000/svg">` +
+          floorSvg(area, false) + decorLayers(area, false) + joins +
+          mine.map(t => { const st = states.get(t.id); return tableSvg(t, st.cls, st.line); }).join('') + '</svg>';
+        const free = mine.filter(t => states.get(t.id).cls === 'free');
+        const res = S.dayRes.filter(r => L.isActive(r) && (r.table_ids || []).some(id => ids.has(Number(id))))
+          .sort((a, b) => L.svcMin(a.res_time) - L.svcMin(b.res_time));
+        const nowRes = r => { const s0 = L.svcMin(r.res_time); return T >= s0 && T < s0 + (r.duration_min || 120); };
+        const rows = res.map(r => `<tr class="${nowRes(r) ? 'now' : ''}"><td class="tm">${L.fromMin(L.svcMin(r.res_time))}</td>` +
+          `<td class="tb">${esc(api.tableNames(r.table_ids))}</td><td><b>${esc(r.name)}</b>${r.notes ? `<div class="nt">${esc(r.notes)}</div>` : ''}</td>` +
+          `<td class="px">${r.party_size}</td><td>${esc(r.phone || '')}</td><td>${r.status === 'seated' ? 'Ήρθε' : ''}</td></tr>`).join('');
+        return `<section class="page ${W >= H ? 'land' : 'port'}">` +
+          `<header><div><b>${esc(S.settings.shop_name)}</b> · ${esc(area.name)}</div>` +
+          `<div>${esc(L.dayName(S.date))} ${esc(L.grDate(S.date))} · ώρα <b>${L.fromMin(T)}</b> · ελεύθερα ${free.length}/${mine.filter(t => t.active !== false).length}</div></header>` +
+          `<div class="plan">${svgStr}</div>` +
+          `<div class="legend">${LEG.map(([c, l]) => `<span><i class="lg-${c}"></i>${l}</span>`).join('')}</div>` +
+          (withList ? (res.length
+            ? `<table class="rl"><thead><tr><th>Ώρα</th><th>Τραπέζι</th><th>Όνομα</th><th>Άτ.</th><th>Τηλέφωνο</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+            : `<p class="none">Καμία κράτηση σε αυτόν τον χώρο σήμερα.</p>`) : '') +
+          `</section>`;
+      }).join('');
+      const root = document.documentElement;
+      const html = `<!doctype html><html lang="el" data-mode="light" style="${esc(root.getAttribute('style') || '')}"><head><meta charset="utf-8"><title>Κάτοψη</title>` +
+        `<link href="https://fonts.googleapis.com/css2?family=Commissioner:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="styles.css">` +
+        `<style>@page land{size:A4 landscape;margin:8mm}@page port{size:A4 portrait;margin:8mm}` +
+        `*{-webkit-print-color-adjust:exact;print-color-adjust:exact}html,body{background:#fff!important;margin:0;min-height:0}body{font-size:12px;color:#111}` +
+        `.page{break-after:page;page-break-after:always}.page:last-child{break-after:auto;page-break-after:auto}.page.land{page:land}.page.port{page:port}` +
+        `header{display:flex;justify-content:space-between;gap:10px;font-size:14px;border-bottom:2px solid #333;padding-bottom:4px;margin-bottom:6px}` +
+        `.plan{display:flex;justify-content:center}.plan svg{width:100%;height:auto;max-height:${withList ? '128mm' : '178mm'}}` +
+        `.page.port .plan svg{max-height:${withList ? '170mm' : '260mm'}}` +
+        `.legend{display:flex;flex-wrap:wrap;gap:4px 14px;justify-content:center;font-size:11.5px;font-weight:600;margin:4px 0 6px}.legend span{display:inline-flex;gap:5px;align-items:center}` +
+        `.legend i{width:13px;height:13px;border-radius:4px;border:1.5px solid transparent;display:inline-block}` +
+        `.rl{width:100%;border-collapse:collapse;font-size:11.5px}.rl th{text-align:left;border-bottom:1.5px solid #333;padding:2px 5px}` +
+        `.rl td{border-bottom:1px solid #ccc;padding:3px 5px;vertical-align:top}.rl tr{break-inside:avoid}.rl .tm{font-weight:700;white-space:nowrap}.rl .tb{white-space:nowrap}.rl .px{text-align:center;font-weight:700}` +
+        `.rl tr.now td{background:var(--t-busy)}.nt{font-size:10.5px;color:#7a5a00}.none{color:#666;text-align:center}</style></head><body>${pages}</body></html>`;
+      const old = document.getElementById('print-frame'); if (old) old.remove();
+      const fr = h('iframe', { id: 'print-frame', title: 'Εκτύπωση', style: { position: 'fixed', right: '0', bottom: '0', width: '0', height: '0', border: '0', visibility: 'hidden' } });
+      fr.addEventListener('load', () => {
+        const w = fr.contentWindow;
+        const go = () => { try { w.focus(); w.print(); } catch (e) { toast('Δεν άνοιξε η εκτύπωση: ' + e.message, true); } };
+        try { (w.document.fonts && w.document.fonts.ready ? w.document.fonts.ready : Promise.resolve()).then(() => setTimeout(go, 200)); } catch (e) { setTimeout(go, 300); }
+      }, { once: true });
+      fr.srcdoc = html;
+      document.body.append(fr);
     }
 
     /* Ελάχιστο δέντρο σύνδεσης (κοντινότερα τραπέζια ενώνονται μεταξύ τους) */
@@ -819,7 +906,7 @@
       requestAnimationFrame(drawAll);
     }
 
-    return { renderLive, openEditor };
+    return { renderLive, openEditor, printFloor };
   };
   window.FloorPlan.ensureLayout = ensureLayout;
 })();

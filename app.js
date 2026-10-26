@@ -1,7 +1,7 @@
 /* Κρατήσεις — Ψητοπωλείο Παπαχρήστου */
 (function () {
   'use strict';
-  const VERSION = '1.7.0';
+  const VERSION = '1.7.1';
   const L = window.Logic;
 
   const DEFAULT_SETTINGS = {
@@ -108,6 +108,7 @@
     check: '<path d="M20 6 9 17l-5-5"/>',
     link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
     download: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
+    trash: '<path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/>',
     bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
     bellOff: '<path d="M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5"/><path d="M17 17H3s3-2 3-9a4.67 4.67 0 0 1 .3-1.7"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><path d="m2 2 20 20"/>',
     phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/>'
@@ -215,7 +216,7 @@
     } catch (e) { toast('Σφάλμα φόρτωσης: ' + e.message, true); }
     Theme.setShopDefault(S.settings.theme, S.settings.theme_mode);
     FP = FloorPlan({
-      S, L, h, svg, IC, toast, confirmBox, openResForm, tableNames, reload, renderView, isAdmin,
+      S, L, h, svg, IC, toast, confirmBox, openModal, openResForm, tableNames, reload, renderView, isAdmin,
       onSaved: async () => { [S.areas, S.tables] = await Promise.all([S.store.listAreas(), S.store.listTables()]); await reload(); }
     });
     renderShell();
@@ -876,10 +877,10 @@
           if (saved.phone || saved.email) openNotify(saved, 'cancel');
         } catch (e) { toast(e.message, true); }
       } }, 'Ακύρωση κράτησης') : null,
-      !isNew && r.status === 'cancelled' ? h('button', { class: 'btn danger left', onclick: async () => {
-        if (!(await confirmBox('Διαγραφή', 'Οριστική διαγραφή της κράτησης; Δεν αναιρείται.', 'Διαγραφή', true))) return;
-        try { await S.store.deleteReservation(r.id); close(); toast('Διαγράφηκε'); reload(); } catch (e) { toast(e.message, true); }
-      } }, 'Διαγραφή') : null,
+      !isNew ? h('button', { class: 'btn danger' + (r.status === 'cancelled' ? ' left' : ' icon'), title: 'Οριστική διαγραφή κράτησης', 'aria-label': 'Διαγραφή κράτησης', onclick: async () => {
+        if (!(await confirmBox('Διαγραφή κράτησης', 'Οριστική διαγραφή της κράτησης του/της ' + r.name + ' (' + r.party_size + ' άτ., ' + L.dayName(r.res_date) + ' ' + L.prettyDate(r.res_date) + ' ' + L.fromMin(L.svcMin(r.res_time)) + '); Χάνεται εντελώς και δεν αναιρείται. Αν ο πελάτης απλώς δεν έρχεται, προτίμησε «Ακύρωση κράτησης» για να μείνει στο ιστορικό.', 'Διαγραφή', true))) return;
+        try { await S.store.deleteReservation(r.id); delete dayCache[r.res_date]; close(); toast('Η κράτηση διαγράφηκε'); reload(); } catch (e) { toast(e.message, true); }
+      } }, svg(IC.trash), r.status === 'cancelled' ? 'Διαγραφή' : null) : null,
       !isNew ? h('button', { class: 'btn icon', title: 'Εκτύπωση σε θερμικό 80mm', 'aria-label': 'Εκτύπωση κράτησης', onclick: () =>
         printThermal([Object.assign({}, r, collect())], L.dayName(fDate.value) + ' ' + L.grDate(fDate.value), true, true) }, svg(IC.print)) : null,
       h('button', { class: 'btn', onclick: () => close() }, 'Κλείσιμο'),

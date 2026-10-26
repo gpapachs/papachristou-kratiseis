@@ -532,7 +532,7 @@ input[type=checkbox] { accent-color: var(--accent); width: 18px; height: 18px; }
 @media (max-width: 640px) {
   .view-floor .datebar { padding-top: 12px; }
   .view-floor .datebar h1 { font-size: 20px; margin-bottom: 2px; }
-  .fp-toolbar .fp-edit-btn span { display: none; }
+  .fp-toolbar .fp-edit-btn span, .fp-toolbar .fp-print-btn span { display: none; }
 }
 
 /* ---------- Σχεδιαστής κάτοψης ---------- */
