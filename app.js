@@ -1,7 +1,7 @@
 /* Κρατήσεις — Ψητοπωλείο Παπαχρήστου */
 (function () {
   'use strict';
-  const VERSION = '1.7.1';
+  const VERSION = '1.7.2';
   const L = window.Logic;
 
   const DEFAULT_SETTINGS = {

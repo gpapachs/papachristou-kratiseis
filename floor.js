@@ -85,6 +85,28 @@
       `</g></g>`;
   }
 
+  /* Τραπέζι για εκτύπωση: αριθμός + όνομα πελάτη + άτομα/ώρα, με μεγαλύτερα γράμματα */
+  function printTableSvg(t, st) {
+    const w = +t.w || 80, h = +t.h || 80;
+    const r = st.res || st.soon;
+    const fs = clamp(Math.min(w, h) * 0.26, 13, 22);
+    const lines = [[esc(t.name), 'l1', fs]];
+    if (r) {
+      const maxC = Math.max(9, Math.floor(w / 7));
+      const nm = String(r.name || '').trim();
+      lines.push([esc(nm.length > maxC ? nm.slice(0, maxC - 1) + '…' : nm), 'pn', clamp(fs * 0.78, 12, 17)]);
+      lines.push([r.party_size + ' άτ. · ' + L_fromMin(r.res_time), 'pp', clamp(fs * 0.62, 11, 14)]);
+    } else if (st.cls !== 'inactive') {
+      lines.push([(+t.seats || 0) + ' θέσεις', 'l2', clamp(fs * 0.6, 10, 13)]);
+    }
+    const total = lines.reduce((n, l) => n + l[2] * 1.15, 0);
+    let y = -total / 2;
+    const txt = lines.map(([s, c, z]) => { y += z * 1.15; return `<text class="${c}" y="${(y - z * 0.6).toFixed(1)}" font-size="${z.toFixed(1)}">${s}</text>`; }).join('');
+    return `<g class="fp-item fp-table ${st.cls}" transform="translate(${t.x} ${t.y})">` +
+      `<g transform="rotate(${+t.rot || 0})">${chairsSvg(t)}${tableBody(t)}</g><g${trot()}>${txt}</g></g>`;
+  }
+  const L_fromMin = v => { const m = String(v || '').slice(0, 5); return m; };
+
   function decorInner(d) {
     const w = +d.w, h = +d.h;
     switch (d.type) {
@@ -332,21 +354,32 @@
       };
       drawSeg();
       const chk = h('input', { type: 'checkbox', checked: true, onchange: e => { withList = e.target.checked; } });
+      let orient = 'auto';
+      const oseg = h('div', { class: 'seg' });
+      const drawO = () => { oseg.innerHTML = ''; [['auto', 'Αυτόματα (μεγαλύτερο)'], ['land', 'Οριζόντια'], ['port', 'Κάθετη']].forEach(([v, l]) =>
+        oseg.append(h('button', { class: orient === v ? 'on' : '', onclick: () => { orient = v; drawO(); } }, l))); };
+      drawO();
       const close = api.openModal('Εκτύπωση κάτοψης · ' + L.fromMin(T), [
         h('div', { class: 'field' }, h('span', { class: 'section-title' }, 'Χώρος'), seg),
-        h('label', { class: 'fp-check' }, chk, h('span', null, 'Με τη λίστα κρατήσεων της ημέρας για τον χώρο')),
+        h('div', { class: 'field' }, h('span', { class: 'section-title' }, 'Σελίδα'), oseg),
+        h('label', { class: 'fp-check' }, chk, h('span', null, 'Και λίστα κρατήσεων του χώρου (σε χωριστή σελίδα)')),
         h('p', { class: 'hint', style: { margin: 0 } }, 'Τυπώνεται σε Α4 με χρώματα: πράσινο ελεύθερο, κόκκινο κρατημένο, σκούρο κόκκινο κάθονται, πορτοκαλί κρατημένο σε λίγο — για την ώρα ' + L.fromMin(T) + '. Για άλλη ώρα άλλαξέ τη στην κάτοψη. Στο παράθυρο εκτύπωσης βάλε «Έγχρωμη» και ενεργό το «Γραφικά φόντου».')
       ], [
         h('button', { class: 'btn', onclick: () => close() }, 'Άκυρο'),
-        h('button', { class: 'btn primary', onclick: () => { close(); printFloor(which, T, withList); } }, svg(IC.print), 'Εκτύπωση')
+        h('button', { class: 'btn primary', onclick: () => { close(); printFloor(which, T, withList, orient); } }, svg(IC.print), 'Εκτύπωση')
       ]);
     }
 
-    function printFloor(which, T, withList) {
+    function printFloor(which, T, withList, orient) {
+      orient = orient || 'auto';
       const areas = clone(S.areas), tables = clone(S.tables);
       ensureLayout(areas, tables);
       const list = which === 'all' ? areas : areas.filter(a => sameId(a.id, which));
       const LEG = [['free', 'Ελεύθερο'], ['soon', 'Κρατημένο σε λίγο'], ['reserved', 'Κρατημένο'], ['seated', 'Κάθονται'], ['inactive', 'Ανενεργό']];
+      // χρήσιμος χώρος σελίδας Α4 (mm) για την κάτοψη, χωρίς επικεφαλίδα και υπόμνημα
+      const PAGE = { land: [281, 168], port: [194, 255] };
+      const head = (area, extra) => `<header><div><b>${esc(S.settings.shop_name)}</b> · ${esc(area.name)}</div>` +
+        `<div>${esc(L.dayName(S.date))} ${esc(L.grDate(S.date))}${extra || ''}</div></header>`;
       const pages = list.map(area => {
         const mine = tables.filter(t => sameId(t.area_id, area.id));
         const ids = new Set(mine.map(t => Number(t.id)));
@@ -359,26 +392,40 @@
           if (m.length > 1) { seen.add(r.id); groups.push({ cls: st.cls, m }); }
         }
         const joins = groups.map(g => mstEdges(g.m).map(([a, b]) => `<line class="fp-join j-${g.cls}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`).join('')).join('');
-        const W = area.width, H = area.height;
-        const svgStr = `<svg class="fp-svg" viewBox="-20 -20 ${W + 40} ${H + 40}" xmlns="http://www.w3.org/2000/svg">` +
-          floorSvg(area, false) + decorLayers(area, false) + joins +
-          mine.map(t => { const st = states.get(t.id); return tableSvg(t, st.cls, st.line); }).join('') + '</svg>';
+        const W = area.width + 40, H = area.height + 40;
+        // διαλέγουμε σελίδα (οριζόντια/κάθετη) και αν θα γυρίσει η κάτοψη 90°, ώστε να βγει όσο πιο μεγάλη γίνεται
+        let best = null;
+        for (const pg of (orient === 'auto' ? ['land', 'port'] : [orient])) for (const rot of [false, true]) {
+          const [pw, ph] = PAGE[pg], vw = rot ? H : W, vh = rot ? W : H;
+          const sc = Math.min(pw / vw, ph / vh);
+          if (!best || sc > best.sc * 1.03) best = { pg, rot, sc, w: vw * sc, h: vh * sc };
+        }
+        TROT = best.rot ? -90 : 0;
+        const inner = floorSvg(area, false) + decorLayers(area, false) + joins +
+          mine.map(t => printTableSvg(t, states.get(t.id))).join('');
+        TROT = 0;
+        const svgStr = best.rot
+          ? `<svg class="fp-svg" viewBox="-20 -20 ${H} ${W}" xmlns="http://www.w3.org/2000/svg"><g transform="translate(${area.height} 0) rotate(90)">${inner}</g></svg>`
+          : `<svg class="fp-svg" viewBox="-20 -20 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
         const free = mine.filter(t => states.get(t.id).cls === 'free');
-        const res = S.dayRes.filter(r => L.isActive(r) && (r.table_ids || []).some(id => ids.has(Number(id))))
+        const planPage = `<section class="page ${best.pg}">` +
+          head(area, ` · ώρα <b>${L.fromMin(T)}</b> · ελεύθερα ${free.length}/${mine.filter(t => t.active !== false).length}`) +
+          `<div class="plan"><div style="width:${best.w.toFixed(1)}mm;height:${best.h.toFixed(1)}mm">${svgStr}</div></div>` +
+          `<div class="legend">${LEG.map(([c, l]) => `<span><i class="lg-${c}"></i>${l}</span>`).join('')}</div></section>`;
+        if (!withList) return planPage;
+
+        const res = S.dayRes.filter(r => L.isActive(r) && ((r.table_ids || []).some(id => ids.has(Number(id))) ||
+          (!(r.table_ids || []).length && sameId(r.area_pref, area.id))))
           .sort((a, b) => L.svcMin(a.res_time) - L.svcMin(b.res_time));
         const nowRes = r => { const s0 = L.svcMin(r.res_time); return T >= s0 && T < s0 + (r.duration_min || 120); };
         const rows = res.map(r => `<tr class="${nowRes(r) ? 'now' : ''}"><td class="tm">${L.fromMin(L.svcMin(r.res_time))}</td>` +
-          `<td class="tb">${esc(api.tableNames(r.table_ids))}</td><td><b>${esc(r.name)}</b>${r.notes ? `<div class="nt">${esc(r.notes)}</div>` : ''}</td>` +
+          `<td class="tb">${(r.table_ids || []).length ? esc(api.tableNames(r.table_ids)) : '<b>χωρίς</b>'}</td><td><b>${esc(r.name)}</b>${r.notes ? `<div class="nt">${esc(r.notes)}</div>` : ''}</td>` +
           `<td class="px">${r.party_size}</td><td>${esc(r.phone || '')}</td><td>${r.status === 'seated' ? 'Ήρθε' : ''}</td></tr>`).join('');
-        return `<section class="page ${W >= H ? 'land' : 'port'}">` +
-          `<header><div><b>${esc(S.settings.shop_name)}</b> · ${esc(area.name)}</div>` +
-          `<div>${esc(L.dayName(S.date))} ${esc(L.grDate(S.date))} · ώρα <b>${L.fromMin(T)}</b> · ελεύθερα ${free.length}/${mine.filter(t => t.active !== false).length}</div></header>` +
-          `<div class="plan">${svgStr}</div>` +
-          `<div class="legend">${LEG.map(([c, l]) => `<span><i class="lg-${c}"></i>${l}</span>`).join('')}</div>` +
-          (withList ? (res.length
+        const pax = res.reduce((n, r) => n + r.party_size, 0);
+        return planPage + `<section class="page port">` + head(area, ` · ${res.length} κρατήσεις · ${pax} άτομα`) +
+          (res.length
             ? `<table class="rl"><thead><tr><th>Ώρα</th><th>Τραπέζι</th><th>Όνομα</th><th>Άτ.</th><th>Τηλέφωνο</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
-            : `<p class="none">Καμία κράτηση σε αυτόν τον χώρο σήμερα.</p>`) : '') +
-          `</section>`;
+            : `<p class="none">Καμία κράτηση σε αυτόν τον χώρο.</p>`) + `</section>`;
       }).join('');
       const root = document.documentElement;
       const html = `<!doctype html><html lang="el" data-mode="light" style="${esc(root.getAttribute('style') || '')}"><head><meta charset="utf-8"><title>Κάτοψη</title>` +
@@ -387,13 +434,13 @@
         `*{-webkit-print-color-adjust:exact;print-color-adjust:exact}html,body{background:#fff!important;margin:0;min-height:0}body{font-size:12px;color:#111}` +
         `.page{break-after:page;page-break-after:always}.page:last-child{break-after:auto;page-break-after:auto}.page.land{page:land}.page.port{page:port}` +
         `header{display:flex;justify-content:space-between;gap:10px;font-size:14px;border-bottom:2px solid #333;padding-bottom:4px;margin-bottom:6px}` +
-        `.plan{display:flex;justify-content:center}.plan svg{width:100%;height:auto;max-height:${withList ? '128mm' : '178mm'}}` +
-        `.page.port .plan svg{max-height:${withList ? '170mm' : '260mm'}}` +
+        `.plan{display:flex;justify-content:center}.plan svg{width:100%;height:100%;display:block}` +
+        `.fp-table text{paint-order:stroke;stroke:rgba(255,255,255,.85);stroke-width:3px;stroke-linejoin:round}.fp-table text.pn{font-weight:800;fill:#111}.fp-table text.pp{font-weight:700;fill:#222}` +
         `.legend{display:flex;flex-wrap:wrap;gap:4px 14px;justify-content:center;font-size:11.5px;font-weight:600;margin:4px 0 6px}.legend span{display:inline-flex;gap:5px;align-items:center}` +
         `.legend i{width:13px;height:13px;border-radius:4px;border:1.5px solid transparent;display:inline-block}` +
-        `.rl{width:100%;border-collapse:collapse;font-size:11.5px}.rl th{text-align:left;border-bottom:1.5px solid #333;padding:2px 5px}` +
-        `.rl td{border-bottom:1px solid #ccc;padding:3px 5px;vertical-align:top}.rl tr{break-inside:avoid}.rl .tm{font-weight:700;white-space:nowrap}.rl .tb{white-space:nowrap}.rl .px{text-align:center;font-weight:700}` +
-        `.rl tr.now td{background:var(--t-busy)}.nt{font-size:10.5px;color:#7a5a00}.none{color:#666;text-align:center}</style></head><body>${pages}</body></html>`;
+        `.rl{width:100%;border-collapse:collapse;font-size:13px}.rl th{text-align:left;border-bottom:1.5px solid #333;padding:2px 5px}` +
+        `.rl td{border-bottom:1px solid #ccc;padding:5px 6px;vertical-align:top}.rl tr{break-inside:avoid}.rl .tm{font-weight:700;white-space:nowrap}.rl .tb{white-space:nowrap}.rl .px{text-align:center;font-weight:700}` +
+        `.rl tr.now td{background:var(--t-busy)}.nt{font-size:12px;color:#7a5a00}.none{color:#666;text-align:center}</style></head><body>${pages}</body></html>`;
       const old = document.getElementById('print-frame'); if (old) old.remove();
       const fr = h('iframe', { id: 'print-frame', title: 'Εκτύπωση', style: { position: 'fixed', right: '0', bottom: '0', width: '0', height: '0', border: '0', visibility: 'hidden' } });
       fr.addEventListener('load', () => {
