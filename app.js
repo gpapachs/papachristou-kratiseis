@@ -1,7 +1,7 @@
 /* Κρατήσεις — Ψητοπωλείο Παπαχρήστου */
 (function () {
   'use strict';
-  const VERSION = '1.6.1';
+  const VERSION = '1.7.0';
   const L = window.Logic;
 
   const DEFAULT_SETTINGS = {
@@ -81,6 +81,8 @@
     return el;
   }
   const $ = s => document.querySelector(s);
+  // συσκευή αφής (κινητό / tablet): εκεί δεν ανοίγουμε αυτόματα το πληκτρολόγιο
+  const isTouch = () => window.matchMedia('(pointer: coarse)').matches && !window.matchMedia('(any-pointer: fine)').matches;
   function toast(msg, err) {
     const t = $('#toast'); t.textContent = msg; t.className = 'show' + (err ? ' err' : '');
     clearTimeout(toast._t); toast._t = setTimeout(() => { t.className = ''; }, err ? 4500 : 2200);
@@ -106,6 +108,8 @@
     check: '<path d="M20 6 9 17l-5-5"/>',
     link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
     download: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
+    bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+    bellOff: '<path d="M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5"/><path d="M17 17H3s3-2 3-9a4.67 4.67 0 0 1 .3-1.7"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><path d="m2 2 20 20"/>',
     phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/>'
   };
 
@@ -123,6 +127,12 @@
         foot ? h('div', { class: 'modal-foot' }, foot) : null));
     root.appendChild(ov);
     document.addEventListener('keydown', onKey);
+    // σε κινητό: όταν πατάς πεδίο και ανοίγει το πληκτρολόγιο, το πεδίο έρχεται στο κέντρο και δεν κρύβεται
+    ov.addEventListener('focusin', e => {
+      const el = e.target;
+      if (!isTouch() || !el.matches('input, textarea, select')) return;
+      setTimeout(() => { try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (x) {} }, 320);
+    });
     return close;
   }
   function confirmBox(title, text, okLabel, danger) {
@@ -211,6 +221,9 @@
     renderShell();
     await reload();
     if (/[?&]new=1/.test(location.search)) { history.replaceState(null, '', location.pathname + (S.store.demo ? '?demo' : '')); openResForm(null, {}); }
+    else if (/[?&](date|res)=/.test(location.search)) { const u = location.href; history.replaceState(null, '', location.pathname + (S.store.demo ? '?demo' : '')); openFromUrl(u); }
+    if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => { if (e.data && e.data.type === 'open') openFromUrl(e.data.url); });
+    refreshBell();
     if (unsub) unsub();
     unsub = S.store.subscribe(onRemoteChange);
     // ανανέωση "τώρα" γραμμής και ημερομηνίας κάθε λεπτό
@@ -219,7 +232,8 @@
   }
 
   let rcTimer = null;
-  function onRemoteChange(table) {
+  function onRemoteChange(table, payload) {
+    if (table === 'reservations' && payload) checkAlert(payload);
     clearTimeout(rcTimer);
     rcTimer = setTimeout(async () => {
       if (table === 'res_settings') { S.settings = Object.assign({}, DEFAULT_SETTINGS, await S.store.loadSettings()); Theme.setShopDefault(S.settings.theme, S.settings.theme_mode); }
@@ -264,6 +278,7 @@
         h('div', { class: 'spacer' }),
         h('button', { class: 'btn' + (installEvt ? '' : ' hidden'), id: 'install-btn', onclick: installApp }, svg(IC.download), h('span', { class: 'hide-sm' }, 'Εγκατάσταση')),
         h('button', { class: 'btn primary', onclick: () => openResForm(null, {}) }, svg(IC.plus), 'Νέα κράτηση'),
+        h('button', { class: 'btn icon bell-btn', id: 'bell-btn', title: 'Ειδοποιήσεις', 'aria-label': 'Ειδοποιήσεις', onclick: openNotifySettings }, svg(IC.bellOff)),
         h('button', { class: 'btn icon', title: 'Ρυθμίσεις', 'aria-label': 'Ρυθμίσεις', onclick: openSettings }, svg(IC.gear)),
         h('button', { class: 'btn user-btn', title: 'Ο λογαριασμός μου', 'aria-label': 'Ο λογαριασμός μου', onclick: openAccount },
           h('span', { class: 'avatar' + (isAdmin() ? ' admin' : '') }, initials(S.me.display_name)), h('span', { class: 'hide-sm' }, S.me.display_name)))),
@@ -273,7 +288,7 @@
         h('button', { class: 'btn', onclick: () => setDate(L.fmtDate(new Date())) }, 'Σήμερα'),
         h('button', { class: 'btn icon', 'aria-label': 'Επόμενη μέρα', onclick: () => setDate(L.addDays(S.date, 1)) }, svg(IC.right)),
         dateInput,
-        h('button', { class: 'btn ghost print-btn', onclick: () => { S.view = 'list'; renderTabs(); renderView(); setTimeout(() => window.print(), 50); } }, svg(IC.print), 'Εκτύπωση')),
+        h('button', { class: 'btn ghost print-btn', title: 'Εκτύπωση', onclick: openPrint }, svg(IC.print), h('span', { class: 'hide-sm' }, 'Εκτύπωση'))),
       h('div', { class: 'closed-banner hidden', id: 'closed' }),
       h('div', { class: 'summary', id: 'summary' }),
       h('nav', { class: 'tabs', id: 'tabs' }),
@@ -865,6 +880,8 @@
         if (!(await confirmBox('Διαγραφή', 'Οριστική διαγραφή της κράτησης; Δεν αναιρείται.', 'Διαγραφή', true))) return;
         try { await S.store.deleteReservation(r.id); close(); toast('Διαγράφηκε'); reload(); } catch (e) { toast(e.message, true); }
       } }, 'Διαγραφή') : null,
+      !isNew ? h('button', { class: 'btn icon', title: 'Εκτύπωση σε θερμικό 80mm', 'aria-label': 'Εκτύπωση κράτησης', onclick: () =>
+        printThermal([Object.assign({}, r, collect())], L.dayName(fDate.value) + ' ' + L.grDate(fDate.value), true, true) }, svg(IC.print)) : null,
       h('button', { class: 'btn', onclick: () => close() }, 'Κλείσιμο'),
       saveBtn
     ];
@@ -889,7 +906,8 @@
       warnBox
     ], foot, { wide: true });
     refresh(true);
-    setTimeout(() => (isNew ? fPhone : fName).focus(), 30);
+    // Σε κινητό/tablet δεν ανοίγουμε μόνοι μας πληκτρολόγιο: ο χρήστης βλέπει πρώτα όλη τη φόρμα και πατάει όπου θέλει
+    if (!isTouch()) setTimeout(() => (isNew ? fPhone : fName).focus(), 30);
   }
 
   /* ---------- Ρυθμίσεις ---------- */
@@ -1109,6 +1127,250 @@
     const closeSettings = openModal('Ρυθμίσεις', body, null, { wide: true });
   }
 
+  /* ---------- Εκτύπωση: Α4 ή θερμικός εκτυπωτής 80mm ---------- */
+  const PRINT_KEY = 'kratiseis-print';
+  function printPrefs() { try { return Object.assign({ fmt: '80', part: 'all', withPhone: true }, JSON.parse(localStorage.getItem(PRINT_KEY)) || {}); } catch (e) { return { fmt: '80', part: 'all', withPhone: true }; } }
+  function openPrint() {
+    const p = printPrefs();
+    const body = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '14px' } });
+    const seg = (key, opts) => {
+      const el = h('div', { class: 'seg', style: { flexWrap: 'wrap' } });
+      const draw = () => { el.innerHTML = ''; opts.forEach(([v, l]) => el.append(h('button', { class: p[key] === v ? 'on' : '', onclick: () => { p[key] = v; draw(); } }, l))); };
+      draw(); return el;
+    };
+    const phone = h('input', { type: 'checkbox', checked: p.withPhone, onchange: e => { p.withPhone = e.target.checked; } });
+    body.append(
+      h('div', { class: 'field' }, h('span', { class: 'section-title' }, 'Χαρτί'), seg('fmt', [['80', 'Θερμικό 80mm'], ['a4', 'Α4']])),
+      h('div', { class: 'field' }, h('span', { class: 'section-title' }, 'Κρατήσεις'), seg('part', [['all', 'Όλη η μέρα'], ['lunch', 'Μεσημέρι'], ['eve', 'Βράδυ']])),
+      h('label', { class: 'fp-check' }, phone, h('span', null, 'Με τηλέφωνα πελατών')),
+      h('p', { class: 'hint', style: { margin: 0 } }, 'Τυπώνονται οι ενεργές κρατήσεις της ημέρας ταξινομημένες ανά ώρα. Στο παράθυρο εκτύπωσης διάλεξε τον θερμικό εκτυπωτή· αν κόβει το κείμενο, βάλε Περιθώρια: Κανένα και Κλίμακα 100%.'));
+    const close = openModal('Εκτύπωση · ' + L.dayName(S.date) + ' ' + L.prettyDate(S.date), body, [
+      h('button', { class: 'btn', onclick: () => close() }, 'Άκυρο'),
+      h('button', { class: 'btn primary', onclick: () => {
+        try { localStorage.setItem(PRINT_KEY, JSON.stringify(p)); } catch (e) {}
+        close();
+        const list = S.dayRes.filter(r => r.status !== 'cancelled' && r.status !== 'noshow')
+          .filter(r => p.part === 'all' ? true : p.part === 'lunch' ? L.svcMin(r.res_time) < 17 * 60 : L.svcMin(r.res_time) >= 17 * 60)
+          .sort((a, b) => L.svcMin(a.res_time) - L.svcMin(b.res_time));
+        if (p.fmt === 'a4') { S.view = 'list'; S.filter = 'active'; renderTabs(); renderView(); setTimeout(() => window.print(), 80); return; }
+        const sub = p.part === 'lunch' ? ' · Μεσημέρι' : p.part === 'eve' ? ' · Βράδυ' : '';
+        printThermal(list, L.dayName(S.date) + ' ' + L.grDate(S.date) + sub, p.withPhone);
+      } }, svg(IC.print), 'Εκτύπωση')
+    ]);
+  }
+
+  function printThermal(list, title, withPhone, single) {
+    const esc = v => String(v == null ? '' : v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const pax = list.reduce((s, r) => s + r.party_size, 0);
+    const now = new Date();
+    let rows = '', cur = null;
+    for (const r of list) {
+      const t = L.fromMin(L.svcMin(r.res_time));
+      const tn = tableNames(r.table_ids);
+      if (!single && t !== cur) { rows += (cur ? '<div class="sep"></div>' : '') + '<div class="slot">' + t + '</div>'; cur = t; }
+      rows += '<div class="r">' +
+        '<div class="l1"><span class="nm">' + esc(r.name) + '</span><span class="px">' + r.party_size + ' άτ.</span></div>' +
+        '<div class="l2">' + (tn ? 'Τραπ. ' + esc(tn) : '<b>ΧΩΡΙΣ ΤΡΑΠΕΖΙ</b>') +
+          (single ? ' · ' + t : '') + (withPhone && r.phone ? ' · ' + esc(r.phone) : '') + (r.status === 'seated' ? ' · ✓ήρθε' : '') + '</div>' +
+        (r.notes ? '<div class="nt">» ' + esc(r.notes) + '</div>' : '') +
+        '</div>';
+    }
+    if (!list.length) rows = '<div class="empty">Καμία κράτηση</div>';
+    const html = '<!doctype html><html lang="el"><head><meta charset="utf-8"><title>Κρατήσεις</title><style>' +
+      '@page{size:80mm auto;margin:0}' +
+      '*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#000}' +
+      'body{width:72mm;padding:2mm 1mm 6mm;margin:0 auto;font:13px/1.3 Arial,"Helvetica Neue",sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+      '.hd{text-align:center;border-bottom:2px solid #000;padding-bottom:2mm;margin-bottom:2mm}' +
+      '.shop{font-weight:700;font-size:14px;text-transform:uppercase}.ttl{font-weight:700;font-size:16px;margin-top:1mm}' +
+      '.sum{font-size:12px;margin-top:1mm}' +
+      '.slot{font-weight:700;font-size:17px;margin:2mm 0 1mm;border-bottom:1px solid #000}' +
+      '.r{padding:1mm 0 1.5mm;border-bottom:1px dashed #000;page-break-inside:avoid;break-inside:avoid}.r:last-child{border-bottom:0}' +
+      '.l1{display:flex;justify-content:space-between;gap:2mm;font-weight:700;font-size:14px}.nm{overflow-wrap:anywhere}.px{white-space:nowrap}' +
+      '.l2{font-size:12.5px}.nt{font-size:12.5px;font-weight:700;margin-top:.5mm;overflow-wrap:anywhere}' +
+      '.sep{height:1mm}.empty{text-align:center;padding:6mm 0}' +
+      '.ft{text-align:center;font-size:11px;margin-top:3mm;border-top:2px solid #000;padding-top:1.5mm}' +
+      '</style></head><body>' +
+      '<div class="hd"><div class="shop">' + esc(S.settings.shop_name) + '</div><div class="ttl">' + (single ? 'ΚΡΑΤΗΣΗ' : 'ΚΡΑΤΗΣΕΙΣ') + '</div>' +
+      '<div class="sum">' + esc(title) + (single ? '' : '<br>' + list.length + ' κρατήσεις · ' + pax + ' άτομα') + '</div></div>' +
+      rows +
+      '<div class="ft">Εκτύπωση ' + L.grDate(L.fmtDate(now)).slice(0, 5) + ' ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + (S.me ? ' · ' + esc(S.me.display_name) : '') + '</div>' +
+      '</body></html>';
+    const old = document.getElementById('print-frame'); if (old) old.remove();
+    const fr = h('iframe', { id: 'print-frame', title: 'Εκτύπωση', style: { position: 'fixed', right: '0', bottom: '0', width: '0', height: '0', border: '0', visibility: 'hidden' } });
+    document.body.append(fr);
+    const doc = fr.contentWindow.document;
+    doc.open(); doc.write(html); doc.close();
+    setTimeout(() => { try { fr.contentWindow.focus(); fr.contentWindow.print(); } catch (e) { toast('Δεν άνοιξε η εκτύπωση: ' + e.message, true); } }, 250);
+  }
+
+  /* ---------- Ειδοποιήσεις προσωπικού (push + μέσα στην εφαρμογή) ---------- */
+  const VAPID_PUBLIC = (window.KRATISEIS_CONFIG || {}).VAPID_PUBLIC_KEY || 'BOYX1nh227jb1m6GwIn63WvNefH7oZFXJ1W2MI0PXuPjUpD7pihrsdhLMR0CNdA2NdpgLT2qWnYy7Cgacv8Gkz4';
+  const KINDS_KEY = 'kratiseis-notify-kinds';
+  const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  function localKinds() { try { const k = JSON.parse(localStorage.getItem(KINDS_KEY)); if (Array.isArray(k)) return k; } catch (e) {} return ['new', 'cancel']; }
+  function setLocalKinds(k) { try { localStorage.setItem(KINDS_KEY, JSON.stringify(k)); } catch (e) {} }
+  function b64ToBytes(s) {
+    s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '=';
+    const b = atob(s), out = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) out[i] = b.charCodeAt(i); return out;
+  }
+  function deviceName() {
+    const ua = navigator.userAgent;
+    const os = /android/i.test(ua) ? 'Android' : isIOS() ? (/ipad/i.test(ua) || navigator.maxTouchPoints > 1 && /mac/i.test(ua) ? 'iPad' : 'iPhone') : /windows/i.test(ua) ? 'Windows' : /mac/i.test(ua) ? 'Mac' : 'Συσκευή';
+    return os + (isStandalone() ? ' (εφαρμογή)' : '');
+  }
+  async function swReady() {
+    if (!('serviceWorker' in navigator)) return null;
+    try { if (!(await navigator.serviceWorker.getRegistration())) await navigator.serviceWorker.register('sw.js'); } catch (e) {}
+    return Promise.race([navigator.serviceWorker.ready, new Promise(r => setTimeout(() => r(null), 8000))]);
+  }
+  async function pushStatus() {
+    const st = { supported: pushSupported(), needInstall: false, permission: 'default', on: false, kinds: localKinds() };
+    if (isIOS() && !isStandalone()) { st.needInstall = true; st.supported = false; }
+    if (!st.supported) return st;
+    st.permission = Notification.permission;
+    try {
+      const reg = await swReady(); const sub = reg && await reg.pushManager.getSubscription();
+      if (sub) { const mine = await S.store.pushMine(sub.endpoint); if (mine) { st.on = true; st.kinds = mine.kinds || st.kinds; } }
+    } catch (e) {}
+    return st;
+  }
+  async function enablePush(kinds) {
+    const perm = await Notification.requestPermission();   // πρώτο, μέσα στο πάτημα
+    if (perm !== 'granted') throw new Error(perm === 'denied' ? 'Οι ειδοποιήσεις είναι μπλοκαρισμένες για αυτή τη σελίδα στη συσκευή.' : 'Δεν δόθηκε άδεια για ειδοποιήσεις.');
+    const reg = await swReady();
+    if (!reg) throw new Error('Η συσκευή δεν υποστηρίζει ειδοποιήσεις (χρειάζεται https).');
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(VAPID_PUBLIC) });
+    await S.store.pushSubscribe(sub, kinds, deviceName());
+    setLocalKinds(kinds);
+  }
+  async function disablePush() {
+    const reg = await swReady(); const sub = reg && await reg.pushManager.getSubscription();
+    if (!sub) return;
+    try { await S.store.pushUnsubscribe(sub.endpoint); } catch (e) {}
+    try { await sub.unsubscribe(); } catch (e) {}
+  }
+  async function refreshBell() {
+    const b = $('#bell-btn'); if (!b) return;
+    const st = await pushStatus();
+    b.classList.toggle('on', st.on);
+    b.title = st.on ? 'Ειδοποιήσεις: ενεργές σε αυτή τη συσκευή' : 'Ειδοποιήσεις: ανενεργές σε αυτή τη συσκευή';
+    b.innerHTML = ''; b.append(svg(st.on ? IC.bell : IC.bellOff));
+  }
+
+  function openNotifySettings() {
+    const body = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '14px' } });
+    let close;
+    const draw = async () => {
+      const st = await pushStatus();
+      body.innerHTML = '';
+      const chk = (k, label) => h('label', { class: 'fp-check' }, h('input', { type: 'checkbox', checked: st.kinds.includes(k), onchange: e => {
+        st.kinds = e.target.checked ? Array.from(new Set(st.kinds.concat([k]))) : st.kinds.filter(x => x !== k);
+        setLocalKinds(st.kinds);
+        if (st.on) enablePush(st.kinds).then(() => toast('Αποθηκεύτηκε')).catch(err => toast(err.message, true));
+      } }), h('span', null, label));
+      body.append(h('div', { class: 'notify-state' + (st.on ? ' on' : '') },
+        svg(st.on ? IC.bell : IC.bellOff),
+        h('div', null, h('b', null, st.on ? 'Ενεργές σε αυτή τη συσκευή' : 'Ανενεργές σε αυτή τη συσκευή'),
+          h('span', null, st.on ? 'Θα έρχεται ειδοποίηση ακόμα κι αν η εφαρμογή είναι κλειστή.' : 'Ενεργοποίησέ τες στο κινητό κάθε σερβιτόρου.'))));
+      if (st.needInstall) {
+        body.append(h('div', { class: 'infobox' }, 'Στο iPhone / iPad οι ειδοποιήσεις δουλεύουν μόνο αν η εφαρμογή έχει μπει στην οθόνη Αφετηρίας (iOS 16.4 ή νεότερο). Πρόσθεσέ την, άνοιξέ την από το εικονίδιο και έλα ξανά εδώ.',
+          h('div', { style: { marginTop: '8px' } }, h('button', { class: 'btn small', onclick: installApp }, svg(IC.download), 'Οδηγίες εγκατάστασης'))));
+      } else if (!st.supported) {
+        body.append(h('div', { class: 'warnbox' }, 'Αυτός ο browser δεν υποστηρίζει ειδοποιήσεις. Δοκίμασε Chrome (Android / PC) ή Safari από την οθόνη Αφετηρίας (iPhone).'));
+      } else if (st.permission === 'denied') {
+        body.append(h('div', { class: 'warnbox' }, 'Οι ειδοποιήσεις έχουν μπλοκαριστεί. Πάτα το εικονίδιο 🔒 δίπλα στη διεύθυνση (ή Ρυθμίσεις συσκευής → Εφαρμογές → Κρατήσεις) → Ειδοποιήσεις → Επιτρέπεται, και μετά ξανά «Ενεργοποίηση».'));
+      }
+      body.append(h('div', { class: 'section-title' }, 'Να ειδοποιούμαι για'),
+        h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } }, chk('new', 'Νέες κρατήσεις'), chk('cancel', 'Ακυρώσεις κρατήσεων')),
+        h('p', { class: 'hint', style: { margin: 0 } }, 'Η ειδοποίηση έχει όνομα, άτομα, μέρα/ώρα, τραπέζι, τηλέφωνο και σημειώσεις. Δεν ειδοποιείσαι για κρατήσεις που περνάς εσύ. Όταν η εφαρμογή είναι ανοιχτή, εμφανίζεται μήνυμα πάνω στην οθόνη με ήχο.'));
+      const acts = h('div', { class: 'row', style: { justifyContent: 'flex-end' } });
+      if (st.supported && st.on) {
+        acts.append(
+          h('button', { class: 'btn', style: { flex: '0 0 auto', marginRight: 'auto' }, onclick: async () => {
+            const reg = await swReady();
+            if (reg) reg.showNotification('Δοκιμή · Σήμερα 21:00', { body: 'Παπαδόπουλος · 4 άτομα\nΤραπέζι 5 · 6971234567', icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', vibrate: [200, 100, 200], tag: 'test' });
+          } }, 'Δοκιμή'),
+          h('button', { class: 'btn danger', style: { flex: '0 0 auto' }, onclick: async e => {
+            e.target.disabled = true; await disablePush(); toast('Οι ειδοποιήσεις απενεργοποιήθηκαν'); refreshBell(); draw();
+          } }, 'Απενεργοποίηση'));
+      } else if (st.supported) {
+        acts.append(h('button', { class: 'btn primary', style: { flex: '0 0 auto' }, onclick: async e => {
+          const btn = e.currentTarget; btn.disabled = true;
+          try {
+            if (!st.kinds.length) st.kinds = ['new'];
+            await enablePush(st.kinds); toast('Οι ειδοποιήσεις ενεργοποιήθηκαν'); refreshBell(); draw();
+          } catch (err) { btn.disabled = false; toast(err.message, true); draw(); }
+        } }, svg(IC.bell), 'Ενεργοποίηση σε αυτή τη συσκευή'));
+      }
+      body.append(acts);
+    };
+    close = openModal('Ειδοποιήσεις', body);
+    draw();
+    return close;
+  }
+
+  /* Μήνυμα πάνω στην οθόνη όταν άλλος χρήστης περνάει / ακυρώνει κράτηση (η εφαρμογή είναι ανοιχτή) */
+  const alerted = new Set();
+  function checkAlert(p) {
+    if (S.store.demo || !S.me) return;
+    const r = p.new || {};
+    if (!r.id) return;
+    let kind = null;
+    if (p.eventType === 'INSERT' && r.status !== 'cancelled' && r.created_by_uid && r.created_by_uid !== S.me.user_id) kind = 'new';
+    if (p.eventType === 'UPDATE' && r.status === 'cancelled' && r.updated_by_uid && r.updated_by_uid !== S.me.user_id
+      && Date.now() - new Date(r.updated_at).getTime() < 60000) kind = 'cancel';
+    if (!kind || !localKinds().includes(kind) || alerted.has(kind + r.id)) return;
+    alerted.add(kind + r.id);
+    showResAlert(r, kind);
+  }
+  function beep() {
+    try {
+      const A = window.AudioContext || window.webkitAudioContext; if (!A) return;
+      const ctx = beep.ctx || (beep.ctx = new A());
+      [0, 0.22].forEach((t, i) => {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.frequency.value = i ? 1046 : 784; o.type = 'sine';
+        g.gain.setValueAtTime(0.0001, ctx.currentTime + t);
+        g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + t + 0.2);
+        o.connect(g).connect(ctx.destination); o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.22);
+      });
+    } catch (e) {}
+    try { if (navigator.vibrate) navigator.vibrate([150, 80, 150]); } catch (e) {}
+  }
+  function showResAlert(r, kind) {
+    let box = $('#alerts');
+    if (!box) { box = h('div', { id: 'alerts' }); document.body.append(box); }
+    const today = L.fmtDate(new Date());
+    const when = r.res_date === today ? 'Σήμερα' : r.res_date === L.addDays(today, 1) ? 'Αύριο' : L.dayName(r.res_date) + ' ' + L.prettyDate(r.res_date);
+    const tn = tableNames(r.table_ids);
+    const el = h('div', { class: 'res-alert ' + kind, role: 'alert' },
+      h('div', { class: 'ra-head' }, h('b', null, (kind === 'new' ? 'Νέα κράτηση' : 'Ακύρωση') + ' · ' + when + ' ' + L.fromMin(L.svcMin(r.res_time))),
+        h('button', { class: 'btn ghost icon small', 'aria-label': 'Κλείσιμο', onclick: () => el.remove() }, svg(IC.x))),
+      h('div', { class: 'ra-line' }, h('b', null, r.name), ' · ' + r.party_size + ' άτομα'),
+      h('div', { class: 'ra-line' }, tn ? 'Τραπέζι ' + tn : 'Χωρίς τραπέζι', r.phone ? ' · ' + r.phone : ''),
+      r.notes ? h('div', { class: 'ra-note' }, r.notes) : null,
+      h('div', { class: 'ra-foot' }, h('span', { class: 'hint' }, kind === 'new' && r.created_by ? 'από ' + r.created_by : ''),
+        h('button', { class: 'btn small', onclick: () => { el.remove(); openFromUrl('?date=' + r.res_date + '&res=' + r.id); } }, 'Άνοιγμα'),
+        h('button', { class: 'btn small primary', onclick: () => el.remove() }, 'OK')));
+    box.prepend(el);
+    while (box.children.length > 3) box.lastElementChild.remove();
+    beep();
+  }
+
+  /* Άνοιγμα ημέρας / κράτησης από σύνδεσμο ειδοποίησης (?date=…&res=…) */
+  async function openFromUrl(u) {
+    let q;
+    try { q = new URL(u, location.href).searchParams; } catch (e) { return; }
+    const d = q.get('date'), id = Number(q.get('res'));
+    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d) && d !== S.date) { S.date = d; S.assignId = null; const di = $('#date-input'); if (di) di.value = d; }
+    S.view = 'list';
+    await reload();
+    const r = id && S.dayRes.find(x => Number(x.id) === id);
+    if (r) { $('#modal-root').innerHTML = ''; openResForm(r); }
+  }
+
   /* ---------- Χρήστες ---------- */
   const ROLE = { admin: 'Διαχειριστής', staff: 'Προσωπικό' };
   function initials(n) { return String(n || '?').trim().split(/\s+/).map(w => w.charAt(0)).slice(0, 2).join('').toUpperCase(); }
@@ -1212,7 +1474,7 @@
       h('button', { class: 'btn', onclick: () => close() }, 'Άκυρο'),
       saveBtn
     ]);
-    setTimeout(() => fName.focus(), 30);
+    if (!isTouch()) setTimeout(() => fName.focus(), 30);
   }
 
   function openPasswordForm(u) {
@@ -1238,6 +1500,7 @@
       h('div', { class: 'user-row', style: { border: 0, padding: 0 } },
         h('span', { class: 'avatar big' + (isAdmin() ? ' admin' : '') }, initials(S.me.display_name)),
         h('div', { class: 'user-info' }, h('b', { style: { fontSize: '18px' } }, S.me.display_name), h('span', null, '@' + S.me.username + ' · ' + ROLE[S.me.role]))),
+      h('button', { class: 'btn', style: { alignSelf: 'flex-start' }, onclick: () => { close(); openNotifySettings(); } }, svg(IC.bell), 'Ειδοποιήσεις σε αυτή τη συσκευή'),
       h('div', { class: 'section-title' }, 'Αλλαγή κωδικού'),
       h('div', { class: 'grid2' }, p1, p2),
       err,
@@ -1253,7 +1516,7 @@
     ], [
       h('button', { class: 'btn danger left', onclick: async () => {
         if (S.store.demo) { toast('Στη δοκιμαστική λειτουργία δεν υπάρχει αποσύνδεση'); return; }
-        if (await confirmBox('Αποσύνδεση', 'Να γίνει αποσύνδεση από αυτή τη συσκευή;', 'Αποσύνδεση')) { await S.store.signOut(); location.reload(); }
+        if (await confirmBox('Αποσύνδεση', 'Να γίνει αποσύνδεση από αυτή τη συσκευή; Σταματούν και οι ειδοποιήσεις εδώ.', 'Αποσύνδεση')) { try { await disablePush(); } catch (e) {} await S.store.signOut(); location.reload(); }
       } }, svg(IC.out), 'Αποσύνδεση'),
       h('button', { class: 'btn', onclick: () => close() }, 'Κλείσιμο')
     ]);

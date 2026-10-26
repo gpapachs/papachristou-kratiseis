@@ -68,10 +68,18 @@
       async patchReservation(id, fields) { return chk(await sb.from('reservations').update(fields).eq('id', id).select().single()); },
       async deleteReservation(id) { chk(await sb.from('reservations').delete().eq('id', id)); },
 
+      /* ειδοποιήσεις push σε αυτή τη συσκευή */
+      async pushSubscribe(sub, kinds, device) {
+        const j = sub.toJSON();
+        chk(await sb.rpc('push_subscribe', { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth, p_kinds: kinds, p_device: device || null }));
+      },
+      async pushUnsubscribe(endpoint) { chk(await sb.rpc('push_unsubscribe', { p_endpoint: endpoint })); },
+      async pushMine(endpoint) { return chk(await sb.from('push_subs').select('endpoint,kinds').eq('endpoint', endpoint).maybeSingle()); },
+
       subscribe(cb) {
         const ch = sb.channel('kratiseis');
         ['reservations', 'res_areas', 'res_tables', 'res_settings', 'res_closures'].forEach(table =>
-          ch.on('postgres_changes', { event: '*', schema: 'public', table }, () => cb(table)));
+          ch.on('postgres_changes', { event: '*', schema: 'public', table }, payload => cb(table, payload)));
         ch.subscribe();
         return () => sb.removeChannel(ch);
       }
@@ -213,6 +221,9 @@
       },
       async patchReservation(id, f) { const r = db.reservations.find(x => x.id === id); Object.assign(r, f); emit('reservations'); return clone(r); },
       async deleteReservation(id) { db.reservations = db.reservations.filter(r => r.id !== id); emit('reservations'); },
+      async pushSubscribe(sub, kinds) { db.push = { endpoint: sub.endpoint, kinds }; save(); },
+      async pushUnsubscribe() { delete db.push; save(); },
+      async pushMine(endpoint) { return db.push && db.push.endpoint === endpoint ? clone(db.push) : null; },
       subscribe(cb) { listeners.push(cb); return () => {}; },
       reset() { localStorage.removeItem(KEY); }
     };
