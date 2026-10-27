@@ -1,7 +1,7 @@
 /* Κρατήσεις — Ψητοπωλείο Παπαχρήστου */
 (function () {
   'use strict';
-  const VERSION = '1.8.1';
+  const VERSION = '1.8.2';
   const L = window.Logic;
 
   const DEFAULT_SETTINGS = {
@@ -903,8 +903,8 @@
         if (!(await confirmBox('Διαγραφή κράτησης', 'Οριστική διαγραφή της κράτησης του/της ' + r.name + ' (' + r.party_size + ' άτ., ' + L.dayName(r.res_date) + ' ' + L.prettyDate(r.res_date) + ' ' + L.fromMin(L.svcMin(r.res_time)) + '); Χάνεται εντελώς και δεν αναιρείται. Αν ο πελάτης απλώς δεν έρχεται, προτίμησε «Ακύρωση κράτησης» για να μείνει στο ιστορικό.', 'Διαγραφή', true))) return;
         try { await S.store.deleteReservation(r.id); delete dayCache[r.res_date]; close(); toast('Η κράτηση διαγράφηκε'); reload(); } catch (e) { toast(e.message, true); }
       } }, svg(IC.trash), r.status === 'cancelled' ? 'Διαγραφή' : null) : null,
-      !isNew ? h('button', { class: 'btn icon', title: 'Εκτύπωση σε θερμικό 80mm', 'aria-label': 'Εκτύπωση κράτησης', onclick: () =>
-        printThermal([Object.assign({}, r, collect())], L.dayName(fDate.value) + ' ' + L.grDate(fDate.value), true, true) }, svg(IC.print)) : null,
+      !isNew ? h('button', { class: 'btn icon', title: 'Εκτύπωση: κάρτα τραπεζιού ή χαρτάκι', 'aria-label': 'Εκτύπωση κράτησης', onclick: () =>
+        openPrintOne(Object.assign({}, r, collect())) }, svg(IC.print)) : null,
       h('button', { class: 'btn', onclick: () => close() }, 'Κλείσιμο'),
       saveBtn
     ];
@@ -1297,11 +1297,13 @@
       draw(); return el;
     };
     const phone = h('input', { type: 'checkbox', checked: p.withPhone, onchange: e => { p.withPhone = e.target.checked; } });
+    if (!p.what) p.what = 'list';
     body.append(
-      h('div', { class: 'field' }, h('span', { class: 'section-title' }, 'Χαρτί'), seg('fmt', [['80', 'Θερμικό 80mm'], ['a4', 'Α4']])),
+      h('div', { class: 'field' }, h('span', { class: 'section-title' }, 'Τι'), seg('what', [['list', 'Λίστα κρατήσεων'], ['cards', 'Κάρτες τραπεζιών «ΚΡΑΤΗΜΕΝΟ»']])),
+      h('div', { class: 'field' }, h('span', { class: 'section-title' }, 'Χαρτί'), seg('fmt', [['80', 'Θερμικό 80mm'], ['a4', 'Α4 (κάρτες: 4 ανά σελίδα)']])),
       h('div', { class: 'field' }, h('span', { class: 'section-title' }, 'Κρατήσεις'), seg('part', [['all', 'Όλη η μέρα'], ['lunch', 'Μεσημέρι'], ['eve', 'Βράδυ']])),
       h('label', { class: 'fp-check' }, phone, h('span', null, 'Με τηλέφωνα πελατών')),
-      h('p', { class: 'hint', style: { margin: 0 } }, 'Τυπώνονται οι ενεργές κρατήσεις της ημέρας ταξινομημένες ανά ώρα. Στο παράθυρο εκτύπωσης διάλεξε τον θερμικό εκτυπωτή· αν κόβει το κείμενο, βάλε Περιθώρια: Κανένα και Κλίμακα 100%.'));
+      h('p', { class: 'hint', style: { margin: 0 } }, 'Λίστα: όλες οι ενεργές κρατήσεις ανά ώρα. Κάρτες: μία κάρτα «ΚΡΑΤΗΜΕΝΟ» για κάθε κράτηση που δεν έχει έρθει ακόμα, για να μπαίνει πάνω στο τραπέζι — στο Α4 κόβεις τη σελίδα στα 4 στις διακεκομμένες γραμμές. Στο παράθυρο εκτύπωσης διάλεξε τον θερμικό εκτυπωτή· αν κόβει το κείμενο, βάλε Περιθώρια: Κανένα και Κλίμακα 100%.'));
     const close = openModal('Εκτύπωση · ' + L.dayName(S.date) + ' ' + L.prettyDate(S.date), body, [
       h('button', { class: 'btn', onclick: () => close() }, 'Άκυρο'),
       h('button', { class: 'btn primary', onclick: () => {
@@ -1310,9 +1312,98 @@
         const list = S.dayRes.filter(r => r.status !== 'cancelled' && r.status !== 'noshow')
           .filter(r => p.part === 'all' ? true : p.part === 'lunch' ? L.svcMin(r.res_time) < 17 * 60 : L.svcMin(r.res_time) >= 17 * 60)
           .sort((a, b) => L.svcMin(a.res_time) - L.svcMin(b.res_time));
+        if (p.what === 'cards') { printTableCards(list.filter(r => r.status === 'confirmed'), p.fmt); return; }
         if (p.fmt === 'a4') { S.view = 'list'; S.filter = 'active'; renderTabs(); renderView(); setTimeout(() => window.print(), 80); return; }
         const sub = p.part === 'lunch' ? ' · Μεσημέρι' : p.part === 'eve' ? ' · Βράδυ' : '';
         printThermal(list, L.dayName(S.date) + ' ' + L.grDate(S.date) + sub, p.withPhone);
+      } }, svg(IC.print), 'Εκτύπωση')
+    ]);
+  }
+
+  /* ---------- Κάρτα «ΚΡΑΤΗΜΕΝΟ» για πάνω στο τραπέζι ---------- */
+  // fmt: '80' = θερμικό 80mm (μία κάρτα ανά κομμάτι) · 'a4' = Α4 με 4 κάρτες (κόβεται στη μέση οριζόντια και κάθετα)
+  function printTableCards(list, fmt) {
+    if (!list.length) { toast('Δεν υπάρχουν κρατήσεις για εκτύπωση', true); return; }
+    const esc = v => String(v == null ? '' : v).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const logo = new URL('icons/logo.svg', location.href).href;
+    const card = r => {
+      const tn = tableNames(r.table_ids);
+      const multi = (r.table_ids || []).length > 1;
+      const nm = String(r.name || '').trim();
+      return '<div class="card">' +
+        '<img class="logo" src="' + logo + '" alt="">' +
+        '<div class="res">ΚΡΑΤΗΜΕΝΟ</div><div class="res-en">RESERVED</div>' +
+        '<div class="nm' + (nm.length > 18 ? ' long' : '') + '">' + esc(nm) + '</div>' +
+        '<div class="tm">' + L.fromMin(L.svcMin(r.res_time)) + '</div>' +
+        '<div class="info">' + r.party_size + ' άτομα' + (tn ? ' · ' + (multi ? 'Τραπέζια ' : 'Τραπέζι ') + esc(tn) : '') + '</div>' +
+        '<div class="dt">' + esc(L.dayName(r.res_date)) + ' ' + esc(L.grDate(r.res_date)) + '</div>' +
+        '</div>';
+    };
+    let body, css;
+    if (fmt === 'a4') {
+      const pages = [];
+      for (let i = 0; i < list.length; i += 4) pages.push(list.slice(i, i + 4));
+      body = pages.map(pg => '<section class="sheet">' + pg.map(r => '<div class="cell">' + card(r) + '</div>').join('') +
+        '<i class="cut v"></i><i class="cut h"></i></section>').join('');
+      css = '@page{size:A4 portrait;margin:0}' +
+        'html,body{margin:0;padding:0;background:#fff}' +
+        '.sheet{position:relative;width:210mm;height:297mm;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;page-break-after:always;break-after:page;overflow:hidden}' +
+        '.sheet:last-child{page-break-after:auto;break-after:auto}' +
+        '.cell{display:flex;align-items:center;justify-content:center;padding:10mm 8mm}' +
+        '.cut{position:absolute;border:0 dashed #999}.cut.v{left:105mm;top:0;bottom:0;border-left-width:.3mm}.cut.h{top:148.5mm;left:0;right:0;border-top-width:.3mm}' +
+        '.card{text-align:center;width:100%}' +
+        '.logo{width:40mm;height:auto;display:block;margin:0 auto 5mm}' +
+        '.res{font-size:30pt;font-weight:800;letter-spacing:2.5pt;line-height:1}.res-en{font-size:11pt;letter-spacing:6pt;color:#555;margin:1.5mm 0 6mm}' +
+        '.nm{font-size:22pt;font-weight:700;line-height:1.15;overflow-wrap:anywhere;border-top:.4mm solid #222;border-bottom:.4mm solid #222;padding:3mm 0;margin:0 3mm}' +
+        '.nm.long{font-size:17pt}' +
+        '.tm{font-size:34pt;font-weight:800;margin:4mm 0 1mm;line-height:1}' +
+        '.info{font-size:13pt;font-weight:600}.dt{font-size:10.5pt;color:#555;margin-top:2mm}';
+    } else {
+      body = list.map(card).join('<div class="brk"></div>');
+      css = '@page{size:80mm auto;margin:0}' +
+        'html,body{margin:0;padding:0;background:#fff}' +
+        'body{width:72mm;margin:0 auto}' +
+        '.card{text-align:center;padding:3mm 1mm 8mm;page-break-inside:avoid;break-inside:avoid}' +
+        '.brk{page-break-after:always;break-after:page;height:0}' +
+        '.logo{width:44mm;height:auto;display:block;margin:0 auto 3mm}' +
+        '.res{font-size:26pt;font-weight:800;letter-spacing:1.5pt;line-height:1}.res-en{font-size:10pt;letter-spacing:5pt;margin:1mm 0 4mm}' +
+        '.nm{font-size:19pt;font-weight:800;line-height:1.15;overflow-wrap:anywhere;border-top:.6mm solid #000;border-bottom:.6mm solid #000;padding:2.5mm 0}' +
+        '.nm.long{font-size:15pt}' +
+        '.tm{font-size:30pt;font-weight:800;margin:3mm 0 1mm;line-height:1}' +
+        '.info{font-size:13pt;font-weight:700}.dt{font-size:11pt;margin-top:1.5mm}';
+    }
+    const html = '<!doctype html><html lang="el"><head><meta charset="utf-8"><title>Κάρτες τραπεζιών</title><style>' +
+      '*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+      'body{font-family:Arial,"Helvetica Neue",sans-serif;color:#000}' + css + '</style></head><body>' + body + '</body></html>';
+    const old = document.getElementById('print-frame'); if (old) old.remove();
+    const fr = h('iframe', { id: 'print-frame', title: 'Εκτύπωση', style: { position: 'fixed', right: '0', bottom: '0', width: '0', height: '0', border: '0', visibility: 'hidden' } });
+    document.body.append(fr);
+    const doc = fr.contentWindow.document;
+    doc.open(); doc.write(html); doc.close();
+    const imgs = [...doc.images];
+    Promise.race([
+      Promise.all(imgs.map(im => im.complete ? 0 : new Promise(r => { im.onload = im.onerror = r; }))),
+      new Promise(r => setTimeout(r, 3000))
+    ]).then(() => setTimeout(() => {
+      try { fr.contentWindow.focus(); fr.contentWindow.print(); } catch (e) { toast('Δεν άνοιξε η εκτύπωση: ' + e.message, true); }
+    }, 150));
+  }
+
+  /* Εκτύπωση μίας κράτησης: κάρτα τραπεζιού (80mm ή Α4) ή χαρτάκι κράτησης */
+  function openPrintOne(r) {
+    let what = 'card80';
+    const seg = h('div', { class: 'seg', style: { flexWrap: 'wrap' } });
+    const draw = () => { seg.innerHTML = ''; [['card80', 'Κάρτα τραπεζιού · 80mm'], ['carda4', 'Κάρτα τραπεζιού · Α4 (¼)'], ['slip', 'Χαρτάκι κράτησης · 80mm']].forEach(([v, l]) =>
+      seg.append(h('button', { class: what === v ? 'on' : '', onclick: () => { what = v; draw(); } }, l))); };
+    draw();
+    const close = openModal('Εκτύπωση · ' + r.name, [seg,
+      h('p', { class: 'hint', style: { margin: 0 } }, 'Η κάρτα τραπεζιού γράφει ΚΡΑΤΗΜΕΝΟ με το λογότυπο, όνομα, ώρα, άτομα και τραπέζι — για να μπαίνει πάνω στο τραπέζι. Στο Α4 τυπώνεται στο πάνω αριστερό τέταρτο· για πολλές μαζί, χρησιμοποίησε την Εκτύπωση της ημέρας.')
+    ], [
+      h('button', { class: 'btn', onclick: () => close() }, 'Άκυρο'),
+      h('button', { class: 'btn primary', onclick: () => {
+        close();
+        if (what === 'slip') printThermal([r], L.dayName(r.res_date) + ' ' + L.grDate(r.res_date), true, true);
+        else printTableCards([r], what === 'carda4' ? 'a4' : '80');
       } }, svg(IC.print), 'Εκτύπωση')
     ]);
   }
