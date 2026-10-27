@@ -1,7 +1,7 @@
 /* Κρατήσεις — Ψητοπωλείο Παπαχρήστου */
 (function () {
   'use strict';
-  const VERSION = '1.8.2';
+  const VERSION = '1.8.3';
   const L = window.Logic;
 
   const DEFAULT_SETTINGS = {
@@ -1336,6 +1336,7 @@
         '<div class="nm' + (nm.length > 18 ? ' long' : '') + '">' + esc(nm) + '</div>' +
         '<div class="tm">' + L.fromMin(L.svcMin(r.res_time)) + '</div>' +
         '<div class="info">' + r.party_size + ' άτομα' + (tn ? ' · ' + (multi ? 'Τραπέζια ' : 'Τραπέζι ') + esc(tn) : '') + '</div>' +
+        (r.phone ? '<div class="ph">Τηλ. ' + esc(r.phone) + '</div>' : '') +
         '<div class="dt">' + esc(L.dayName(r.res_date)) + ' ' + esc(L.grDate(r.res_date)) + '</div>' +
         '</div>';
     };
@@ -1357,7 +1358,7 @@
         '.nm{font-size:22pt;font-weight:700;line-height:1.15;overflow-wrap:anywhere;border-top:.4mm solid #222;border-bottom:.4mm solid #222;padding:3mm 0;margin:0 3mm}' +
         '.nm.long{font-size:17pt}' +
         '.tm{font-size:34pt;font-weight:800;margin:4mm 0 1mm;line-height:1}' +
-        '.info{font-size:13pt;font-weight:600}.dt{font-size:10.5pt;color:#555;margin-top:2mm}';
+        '.info{font-size:13pt;font-weight:600}.ph{font-size:12pt;font-weight:600;margin-top:1.5mm}.dt{font-size:10.5pt;color:#555;margin-top:2mm}';
     } else {
       body = list.map(card).join('<div class="brk"></div>');
       css = '@page{size:80mm auto;margin:0}' +
@@ -1370,7 +1371,7 @@
         '.nm{font-size:19pt;font-weight:800;line-height:1.15;overflow-wrap:anywhere;border-top:.6mm solid #000;border-bottom:.6mm solid #000;padding:2.5mm 0}' +
         '.nm.long{font-size:15pt}' +
         '.tm{font-size:30pt;font-weight:800;margin:3mm 0 1mm;line-height:1}' +
-        '.info{font-size:13pt;font-weight:700}.dt{font-size:11pt;margin-top:1.5mm}';
+        '.info{font-size:13pt;font-weight:700}.ph{font-size:12pt;font-weight:700;margin-top:1mm}.dt{font-size:11pt;margin-top:1.5mm}';
     }
     const html = '<!doctype html><html lang="el"><head><meta charset="utf-8"><title>Κάρτες τραπεζιών</title><style>' +
       '*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
@@ -1397,7 +1398,7 @@
       seg.append(h('button', { class: what === v ? 'on' : '', onclick: () => { what = v; draw(); } }, l))); };
     draw();
     const close = openModal('Εκτύπωση · ' + r.name, [seg,
-      h('p', { class: 'hint', style: { margin: 0 } }, 'Η κάρτα τραπεζιού γράφει ΚΡΑΤΗΜΕΝΟ με το λογότυπο, όνομα, ώρα, άτομα και τραπέζι — για να μπαίνει πάνω στο τραπέζι. Στο Α4 τυπώνεται στο πάνω αριστερό τέταρτο· για πολλές μαζί, χρησιμοποίησε την Εκτύπωση της ημέρας.')
+      h('p', { class: 'hint', style: { margin: 0 } }, 'Η κάρτα τραπεζιού γράφει ΚΡΑΤΗΜΕΝΟ με το λογότυπο, όνομα, ώρα, άτομα, τραπέζι και τηλέφωνο — για να μπαίνει πάνω στο τραπέζι. Στο Α4 τυπώνεται στο πάνω αριστερό τέταρτο· για πολλές μαζί, χρησιμοποίησε την Εκτύπωση της ημέρας.')
     ], [
       h('button', { class: 'btn', onclick: () => close() }, 'Άκυρο'),
       h('button', { class: 'btn primary', onclick: () => {
