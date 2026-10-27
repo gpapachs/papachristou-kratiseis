@@ -1,7 +1,7 @@
 /* Service worker: η εφαρμογή ανοίγει γρήγορα και φορτώνει ακόμα κι αν πέσει στιγμιαία το internet.
    Τα αρχεία της εφαρμογής φέρνονται πάντα πρώτα από το δίκτυο (για να έρχονται οι ενημερώσεις αμέσως)
    και μόνο αν δεν υπάρχει σύνδεση χρησιμοποιείται το αντίγραφο. Τα δεδομένα (Supabase) δεν αποθηκεύονται. */
-const CACHE = 'kratiseis-v1.8.3';
+const CACHE = 'kratiseis-v1.9.0';
 const SHELL = [
   './', 'index.html', 'styles.css', 'theme.js', 'config.js', 'logic.js', 'store.js', 'floor.js', 'app.js',
   'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png', 'icons/badge-96.png', 'icons/mark.svg', 'icons/logo.svg', 'icons/favicon.svg'
@@ -47,8 +47,9 @@ self.addEventListener('push', e => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch (x) { d = { title: 'Κρατήσεις', body: e.data ? e.data.text() : '' }; }
   e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
-    // αν η εφαρμογή είναι ανοιχτή μπροστά μας, το μήνυμα το δείχνει η ίδια (χωρίς διπλή ειδοποίηση)
-    if (list.some(c => c.visibilityState === 'visible' && c.focused)) return;
+    // αν η εφαρμογή είναι ανοιχτή μπροστά μας, το μήνυμα το δείχνει η ίδια πάνω στην οθόνη (με ήχο)
+    const front = list.find(c => c.visibilityState === 'visible' && c.focused);
+    if (front) { front.postMessage({ type: 'push', data: d }); return; }
     return self.registration.showNotification(d.title || 'Κρατήσεις', {
       body: d.body || '',
       tag: d.tag || undefined,
@@ -56,7 +57,7 @@ self.addEventListener('push', e => {
       icon: 'icons/icon-192.png',
       badge: 'icons/badge-96.png',
       vibrate: [200, 100, 200, 100, 300],
-      requireInteraction: d.kind === 'new',
+      requireInteraction: d.kind === 'new' || d.kind === 'soon',
       data: { url: d.url || './' }
     });
   }));

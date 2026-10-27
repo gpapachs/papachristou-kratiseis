@@ -118,3 +118,12 @@ exception when others then
 end $$;
 drop trigger if exists res_push on public.reservations;
 create trigger res_push after insert or update of status on public.reservations for each row execute function private.res_push();
+
+-- =====================================================================
+-- v1.9 — ειδοποιήσεις για αλλαγή κράτησης και «σε 30′ έρχεται»
+-- (έχει ήδη περάσει στο project «Κρατήσεις»· για νέα εγκατάσταση δες τη migration push_change_and_soon_v1_9)
+--   • reservations.soon_notified_at: πότε στάλθηκε το «σε 30′»
+--   • trigger res_push: και σε αλλαγή res_date / res_time / party_size / table_ids (kind 'change', με τις παλιές τιμές)
+--   • private.res_soon_tick() κάθε 5′ (pg_cron 'kratiseis-soon'): κρατήσεις που ξεκινούν στα επόμενα 30′ (kind 'soon')
+--   • push_subs.kinds: προεπιλογή {new,cancel,change,soon}
+-- =====================================================================

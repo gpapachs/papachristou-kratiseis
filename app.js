@@ -1,7 +1,7 @@
 /* Κρατήσεις — Ψητοπωλείο Παπαχρήστου */
 (function () {
   'use strict';
-  const VERSION = '1.8.3';
+  const VERSION = '1.9.0';
   const L = window.Logic;
 
   const DEFAULT_SETTINGS = {
@@ -224,7 +224,11 @@
     await reload();
     if (/[?&]new=1/.test(location.search)) { history.replaceState(null, '', location.pathname + (S.store.demo ? '?demo' : '')); openResForm(null, {}); }
     else if (/[?&](date|res)=/.test(location.search)) { const u = location.href; history.replaceState(null, '', location.pathname + (S.store.demo ? '?demo' : '')); openFromUrl(u); }
-    if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => { if (e.data && e.data.type === 'open') openFromUrl(e.data.url); });
+    if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => {
+      if (!e.data) return;
+      if (e.data.type === 'open') openFromUrl(e.data.url);
+      if (e.data.type === 'push') showPushAlert(e.data.data || {});
+    });
     refreshBell();
     if (unsub) unsub();
     unsub = S.store.subscribe(onRemoteChange);
@@ -1457,7 +1461,8 @@
   const VAPID_PUBLIC = (window.KRATISEIS_CONFIG || {}).VAPID_PUBLIC_KEY || 'BOYX1nh227jb1m6GwIn63WvNefH7oZFXJ1W2MI0PXuPjUpD7pihrsdhLMR0CNdA2NdpgLT2qWnYy7Cgacv8Gkz4';
   const KINDS_KEY = 'kratiseis-notify-kinds';
   const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
-  function localKinds() { try { const k = JSON.parse(localStorage.getItem(KINDS_KEY)); if (Array.isArray(k)) return k; } catch (e) {} return ['new', 'cancel']; }
+  const ALL_KINDS = ['new', 'cancel', 'change', 'soon'];
+  function localKinds() { try { const k = JSON.parse(localStorage.getItem(KINDS_KEY)); if (Array.isArray(k)) return k; } catch (e) {} return ALL_KINDS.slice(); }
   function setLocalKinds(k) { try { localStorage.setItem(KINDS_KEY, JSON.stringify(k)); } catch (e) {} }
   function b64ToBytes(s) {
     s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '=';
@@ -1503,6 +1508,7 @@
   async function refreshBell() {
     const b = $('#bell-btn'); if (!b) return;
     const st = await pushStatus();
+    S.pushOn = st.on;
     b.classList.toggle('on', st.on);
     b.title = st.on ? 'Ειδοποιήσεις: ενεργές σε αυτή τη συσκευή' : 'Ειδοποιήσεις: ανενεργές σε αυτή τη συσκευή';
     b.innerHTML = ''; b.append(svg(st.on ? IC.bell : IC.bellOff));
@@ -1532,8 +1538,11 @@
         body.append(h('div', { class: 'warnbox' }, 'Οι ειδοποιήσεις έχουν μπλοκαριστεί. Πάτα το εικονίδιο 🔒 δίπλα στη διεύθυνση (ή Ρυθμίσεις συσκευής → Εφαρμογές → Κρατήσεις) → Ειδοποιήσεις → Επιτρέπεται, και μετά ξανά «Ενεργοποίηση».'));
       }
       body.append(h('div', { class: 'section-title' }, 'Να ειδοποιούμαι για'),
-        h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } }, chk('new', 'Νέες κρατήσεις'), chk('cancel', 'Ακυρώσεις κρατήσεων')),
-        h('p', { class: 'hint', style: { margin: 0 } }, 'Η ειδοποίηση έχει όνομα, άτομα, μέρα/ώρα, τραπέζι, τηλέφωνο και σημειώσεις. Δεν ειδοποιείσαι για κρατήσεις που περνάς εσύ. Όταν η εφαρμογή είναι ανοιχτή, εμφανίζεται μήνυμα πάνω στην οθόνη με ήχο.'));
+        h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
+          chk('new', 'Νέες κρατήσεις'), chk('cancel', 'Ακυρώσεις κρατήσεων'),
+          chk('change', 'Αλλαγές κρατήσεων (μέρα, ώρα, άτομα, τραπέζι)'),
+          chk('soon', '30 λεπτά πριν έρθει ο πελάτης')),
+        h('p', { class: 'hint', style: { margin: 0 } }, 'Η ειδοποίηση έχει όνομα, άτομα, μέρα/ώρα, τραπέζι, τηλέφωνο και σημειώσεις — στις αλλαγές και τι άλλαξε (π.χ. Ώρα 20:00 → 21:00). Δεν ειδοποιείσαι για ό,τι κάνεις εσύ. Όταν η εφαρμογή είναι ανοιχτή, εμφανίζεται μήνυμα πάνω στην οθόνη με ήχο.'));
       const acts = h('div', { class: 'row', style: { justifyContent: 'flex-end' } });
       if (st.supported && st.on) {
         acts.append(
@@ -1563,7 +1572,8 @@
   /* Μήνυμα πάνω στην οθόνη όταν άλλος χρήστης περνάει / ακυρώνει κράτηση (η εφαρμογή είναι ανοιχτή) */
   const alerted = new Set();
   function checkAlert(p) {
-    if (S.store.demo || !S.me) return;
+    if (S.store.demo || !S.me || S.pushOn) return;   // με ενεργές ειδοποιήσεις το μήνυμα έρχεται από το push
+    
     const r = p.new || {};
     if (!r.id) return;
     let kind = null;
@@ -1607,6 +1617,25 @@
     box.prepend(el);
     while (box.children.length > 3) box.lastElementChild.remove();
     beep();
+  }
+
+  /* Ειδοποίηση push ενώ η εφαρμογή είναι ανοιχτή μπροστά */
+  function showPushAlert(d) {
+    let box = $('#alerts');
+    if (!box) { box = h('div', { id: 'alerts' }); document.body.append(box); }
+    const cls = { new: 'new', soon: 'new', cancel: 'cancel', change: 'change' }[d.kind] || 'new';
+    const lines = String(d.body || '').split('\n');
+    const el = h('div', { class: 'res-alert ' + cls, role: 'alert' },
+      h('div', { class: 'ra-head' }, h('b', null, d.title || 'Κρατήσεις'),
+        h('button', { class: 'btn ghost icon small', 'aria-label': 'Κλείσιμο', onclick: () => el.remove() }, svg(IC.x))),
+      lines.map(l => l.startsWith('📝') ? h('div', { class: 'ra-note' }, l.slice(2).trim()) : h('div', { class: 'ra-line' + (l.startsWith('✏️') ? ' ra-chg' : '') }, l)),
+      h('div', { class: 'ra-foot' }, h('span', { class: 'hint' }),
+        d.url ? h('button', { class: 'btn small', onclick: () => { el.remove(); openFromUrl(d.url); } }, 'Άνοιγμα') : null,
+        h('button', { class: 'btn small primary', onclick: () => el.remove() }, 'OK')));
+    box.prepend(el);
+    while (box.children.length > 3) box.lastElementChild.remove();
+    beep();
+    if (d.kind !== 'new' && d.kind !== 'soon') setTimeout(() => el.remove(), 60000);
   }
 
   /* Άνοιγμα ημέρας / κράτησης από σύνδεσμο ειδοποίησης (?date=…&res=…) */

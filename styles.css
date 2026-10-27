@@ -673,6 +673,9 @@ button.dt-row:hover { background: var(--surface-2); }
 .res-alert { pointer-events: auto; background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow-lg);
   border-left: 6px solid var(--t-free-line); padding: 10px 12px 10px 14px; display: flex; flex-direction: column; gap: 3px; animation: pop .2s ease-out; }
 .res-alert.cancel { border-left-color: var(--t-busy-line); }
+.res-alert.change { border-left-color: var(--peach-ink); }
+.res-alert.change .ra-head b { color: var(--peach-ink); }
+.ra-chg { font-weight: 700; }
 .ra-head { display: flex; align-items: center; gap: 8px; }
 .ra-head b { flex: 1; font-size: 15px; color: var(--t-free-ink); }
 .res-alert.cancel .ra-head b { color: var(--t-busy-ink); }

@@ -1,5 +1,5 @@
-// Ειδοποιήσεις (push) στο προσωπικό για νέες / ακυρωμένες κρατήσεις.
-// Καλείται μόνο από τη βάση (trigger στον πίνακα reservations) με μυστικό κλειδί στο header x-hook-secret.
+// Ειδοποιήσεις (push) στο προσωπικό για νέες / ακυρωμένες / αλλαγμένες κρατήσεις και «σε 30′ έρχεται».
+// Καλείται μόνο από τη βάση (trigger / pg_cron) με μυστικό κλειδί στο header x-hook-secret.
 import { sendPush } from './webpush.ts';
 
 const URL_ = Deno.env.get('SUPABASE_URL')!;
@@ -35,24 +35,37 @@ Deno.serve(async (req) => {
     if (!cfg) return new Response('no config', { status: 503 });
     if (req.headers.get('x-hook-secret') !== cfg.hook_secret) return new Response('forbidden', { status: 403 });
 
-    const { kind, record: r, actor } = await req.json();
-    if (!r || !['new', 'cancel'].includes(kind)) return new Response('ignored');
+    const { kind, record: r, actor, old } = await req.json();
+    if (!r || !['new', 'cancel', 'change', 'soon'].includes(kind)) return new Response('ignored');
 
     const subs = await rpc('push_targets', { p_kind: kind, p_exclude: actor || null });
     if (!subs.length) return Response.json({ sent: 0 });
 
-    const tables: { id: number; name: string }[] = (r.table_ids || []).length ? await rpc('push_table_names', { p_ids: r.table_ids }) : [];
-    const tnames = tables.map(t => t.name).join(' + ');
-    const time = String(r.res_time || '').slice(0, 5);
-    const title = (kind === 'new' ? 'Νέα κράτηση · ' : 'Ακύρωση κράτησης · ') + dayLabel(r.res_date) + ' ' + time;
+    const allIds = [...new Set([...(r.table_ids || []), ...((old && old.table_ids) || [])].map(Number))];
+    const tables: { id: number; name: string }[] = allIds.length ? await rpc('push_table_names', { p_ids: allIds }) : [];
+    const names = (ids: number[]) => (ids || []).map(id => (tables.find(t => Number(t.id) === Number(id)) || { name: '#' + id }).name).join(' + ');
+    const tnames = names(r.table_ids);
+    const hhmm = (t: string) => String(t || '').slice(0, 5);
+    const time = hhmm(r.res_time);
+    const TITLE: Record<string, string> = { new: 'Νέα κράτηση · ', cancel: 'Ακύρωση κράτησης · ', change: 'Αλλαγή κράτησης · ', soon: 'Σε 30′ έρχεται · ' };
+    const title = TITLE[kind] + (kind === 'soon' ? time + ' ' + r.name : dayLabel(r.res_date) + ' ' + time);
+    const changes: string[] = [];
+    if (kind === 'change' && old) {
+      if (old.res_date !== r.res_date) changes.push('Μέρα: ' + dayLabel(old.res_date) + ' → ' + dayLabel(r.res_date));
+      if (hhmm(old.res_time) !== time) changes.push('Ώρα: ' + hhmm(old.res_time) + ' → ' + time);
+      if (Number(old.party_size) !== Number(r.party_size)) changes.push('Άτομα: ' + old.party_size + ' → ' + r.party_size);
+      const ot = names(old.table_ids);
+      if (ot !== tnames) changes.push('Τραπέζι: ' + (ot || 'χωρίς') + ' → ' + (tnames || 'χωρίς'));
+    }
     const lines = [
-      r.name + ' · ' + r.party_size + ' άτομα',
+      kind === 'soon' ? r.party_size + ' άτομα' : r.name + ' · ' + r.party_size + ' άτομα',
+      ...changes.map(c => '✏️ ' + c),
       (tnames ? 'Τραπέζι ' + tnames : 'Χωρίς τραπέζι') + (r.phone ? ' · ' + r.phone : ''),
       r.notes ? '📝 ' + r.notes : null,
       kind === 'new' && r.created_by ? 'από ' + r.created_by : null
     ].filter(Boolean);
     const data = {
-      title, body: lines.join('\n'), tag: 'res-' + r.id + '-' + kind, kind,
+      title, body: lines.join('\n'), tag: 'res-' + r.id + '-' + kind + (kind === 'change' ? '-' + Date.now() : ''), kind,
       url: './?date=' + r.res_date + '&res=' + r.id
     };
 
@@ -62,7 +75,7 @@ Deno.serve(async (req) => {
     const codes: number[] = [];
     await Promise.all(subs.map(async (s: { endpoint: string; p256dh: string; auth: string }) => {
       try {
-        const res = await sendPush(s, data, vapid, 6 * 3600);
+        const res = await sendPush(s, data, vapid, kind === 'soon' ? 1800 : 6 * 3600);
         codes.push(res.status);
         if (res.status === 404 || res.status === 410) gone.push(s.endpoint);
         else if (res.status < 300) sent++;
