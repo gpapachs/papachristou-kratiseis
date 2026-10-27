@@ -1,7 +1,7 @@
 /* Κρατήσεις — Ψητοπωλείο Παπαχρήστου */
 (function () {
   'use strict';
-  const VERSION = '1.9.0';
+  const VERSION = '1.9.1';
   const L = window.Logic;
 
   const DEFAULT_SETTINGS = {
@@ -217,7 +217,7 @@
     } catch (e) { toast('Σφάλμα φόρτωσης: ' + e.message, true); }
     Theme.setShopDefault(S.settings.theme, S.settings.theme_mode);
     FP = FloorPlan({
-      S, L, h, svg, IC, toast, confirmBox, openModal, openResForm, tableNames, reload, renderView, isAdmin,
+      S, L, h, svg, IC, toast, confirmBox, openModal, openResForm, openPrintOne, tableNames, reload, renderView, isAdmin,
       onSaved: async () => { [S.areas, S.tables] = await Promise.all([S.store.listAreas(), S.store.listTables()]); await reload(); }
     });
     renderShell();
@@ -435,6 +435,7 @@
       acts.append(h('button', { class: 'btn small', onclick: set('confirmed') }, 'Επαναφορά'));
     }
     if ((r.phone || r.email) && L.isActive(r)) acts.append(h('button', { class: 'btn small', title: 'Μήνυμα στον πελάτη', onclick: () => openNotify(r, r.confirm_sent_at ? 'reminder' : 'confirm') }, svg(IC.msg)));
+    if (L.isActive(r)) acts.append(h('button', { class: 'btn small', title: 'Εκτύπωση κάρτας τραπεζιού', 'aria-label': 'Εκτύπωση κάρτας τραπεζιού', onclick: () => openPrintOne(r) }, svg(IC.print)));
     acts.append(h('button', { class: 'btn small', onclick: () => openResForm(r) }, 'Αλλαγή'));
 
     const sent = [];
@@ -1302,11 +1303,22 @@
     };
     const phone = h('input', { type: 'checkbox', checked: p.withPhone, onchange: e => { p.withPhone = e.target.checked; } });
     if (!p.what) p.what = 'list';
+    // τραπέζι: μόνο όσα έχουν κράτηση σήμερα
+    const usedIds = new Set(S.dayRes.filter(r => r.status === 'confirmed').flatMap(r => (r.table_ids || []).map(Number)));
+    let tableSel = 'all';
+    const tSel = h('select', { class: 'input', style: { width: 'auto', minWidth: '200px' }, onchange: e => { tableSel = e.target.value; } },
+      h('option', { value: 'all' }, 'Όλα τα τραπέζια'),
+      areaGroups().map(g => {
+        const ts = g.tables.filter(t => usedIds.has(Number(t.id)));
+        return ts.length ? h('optgroup', { label: g.name }, ts.map(t => h('option', { value: t.id }, t.name))) : null;
+      }));
+    const tWrap = h('div', { class: 'field' }, h('span', { class: 'section-title' }, 'Τραπέζι (για κάρτες)'), tSel);
     body.append(
       h('div', { class: 'field' }, h('span', { class: 'section-title' }, 'Τι'), seg('what', [['list', 'Λίστα κρατήσεων'], ['cards', 'Κάρτες τραπεζιών «ΚΡΑΤΗΜΕΝΟ»']])),
       h('div', { class: 'field' }, h('span', { class: 'section-title' }, 'Χαρτί'), seg('fmt', [['80', 'Θερμικό 80mm'], ['a4', 'Α4 (κάρτες: 4 ανά σελίδα)']])),
       h('div', { class: 'field' }, h('span', { class: 'section-title' }, 'Κρατήσεις'), seg('part', [['all', 'Όλη η μέρα'], ['lunch', 'Μεσημέρι'], ['eve', 'Βράδυ']])),
-      h('label', { class: 'fp-check' }, phone, h('span', null, 'Με τηλέφωνα πελατών')),
+      tWrap,
+      h('label', { class: 'fp-check' }, phone, h('span', null, 'Με τηλέφωνα πελατών (λίστα)')),
       h('p', { class: 'hint', style: { margin: 0 } }, 'Λίστα: όλες οι ενεργές κρατήσεις ανά ώρα. Κάρτες: μία κάρτα «ΚΡΑΤΗΜΕΝΟ» για κάθε κράτηση που δεν έχει έρθει ακόμα, για να μπαίνει πάνω στο τραπέζι — στο Α4 κόβεις τη σελίδα στα 4 στις διακεκομμένες γραμμές. Στο παράθυρο εκτύπωσης διάλεξε τον θερμικό εκτυπωτή· αν κόβει το κείμενο, βάλε Περιθώρια: Κανένα και Κλίμακα 100%.'));
     const close = openModal('Εκτύπωση · ' + L.dayName(S.date) + ' ' + L.prettyDate(S.date), body, [
       h('button', { class: 'btn', onclick: () => close() }, 'Άκυρο'),
@@ -1316,7 +1328,10 @@
         const list = S.dayRes.filter(r => r.status !== 'cancelled' && r.status !== 'noshow')
           .filter(r => p.part === 'all' ? true : p.part === 'lunch' ? L.svcMin(r.res_time) < 17 * 60 : L.svcMin(r.res_time) >= 17 * 60)
           .sort((a, b) => L.svcMin(a.res_time) - L.svcMin(b.res_time));
-        if (p.what === 'cards') { printTableCards(list.filter(r => r.status === 'confirmed'), p.fmt); return; }
+        if (p.what === 'cards') {
+          printTableCards(list.filter(r => r.status === 'confirmed' && (tableSel === 'all' || (r.table_ids || []).map(Number).includes(Number(tableSel)))), p.fmt);
+          return;
+        }
         if (p.fmt === 'a4') { S.view = 'list'; S.filter = 'active'; renderTabs(); renderView(); setTimeout(() => window.print(), 80); return; }
         const sub = p.part === 'lunch' ? ' · Μεσημέρι' : p.part === 'eve' ? ' · Βράδυ' : '';
         printThermal(list, L.dayName(S.date) + ' ' + L.grDate(S.date) + sub, p.withPhone);
@@ -1395,20 +1410,24 @@
   }
 
   /* Εκτύπωση μίας κράτησης: κάρτα τραπεζιού (80mm ή Α4) ή χαρτάκι κράτησης */
-  function openPrintOne(r) {
+  function openPrintOne(r, label) {
+    const many = Array.isArray(r) ? r : null;
+    if (many && !many.length) { toast('Καμία κράτηση για εκτύπωση', true); return; }
+    if (many) r = many[0];
     let what = 'card80';
     const seg = h('div', { class: 'seg', style: { flexWrap: 'wrap' } });
     const draw = () => { seg.innerHTML = ''; [['card80', 'Κάρτα τραπεζιού · 80mm'], ['carda4', 'Κάρτα τραπεζιού · Α4 (¼)'], ['slip', 'Χαρτάκι κράτησης · 80mm']].forEach(([v, l]) =>
       seg.append(h('button', { class: what === v ? 'on' : '', onclick: () => { what = v; draw(); } }, l))); };
     draw();
-    const close = openModal('Εκτύπωση · ' + r.name, [seg,
+    const close = openModal('Εκτύπωση · ' + (many ? 'Τραπέζι ' + label + ' (' + many.length + ' κάρτες)' : r.name), [seg,
       h('p', { class: 'hint', style: { margin: 0 } }, 'Η κάρτα τραπεζιού γράφει ΚΡΑΤΗΜΕΝΟ με το λογότυπο, όνομα, ώρα, άτομα, τραπέζι και τηλέφωνο — για να μπαίνει πάνω στο τραπέζι. Στο Α4 τυπώνεται στο πάνω αριστερό τέταρτο· για πολλές μαζί, χρησιμοποίησε την Εκτύπωση της ημέρας.')
     ], [
       h('button', { class: 'btn', onclick: () => close() }, 'Άκυρο'),
       h('button', { class: 'btn primary', onclick: () => {
         close();
-        if (what === 'slip') printThermal([r], L.dayName(r.res_date) + ' ' + L.grDate(r.res_date), true, true);
-        else printTableCards([r], what === 'carda4' ? 'a4' : '80');
+        const list = many || [r];
+        if (what === 'slip') printThermal(list, L.dayName(r.res_date) + ' ' + L.grDate(r.res_date), true, !many);
+        else printTableCards(list, what === 'carda4' ? 'a4' : '80');
       } }, svg(IC.print), 'Εκτύπωση')
     ]);
   }

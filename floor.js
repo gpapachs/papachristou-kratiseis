@@ -535,6 +535,21 @@
       rzT = setTimeout(() => { if (S.view === 'floor' && !document.querySelector('.overlay, .fp-editor')) api.renderView(); }, 200);
     });
 
+    /* Πάτημα σε κρατημένο τραπέζι: άνοιγμα κράτησης ή εκτύπωση κάρτας */
+    function openTableMenu(t, st) {
+      const list = S.dayRes.filter(r => L.isActive(r) && (r.table_ids || []).map(Number).includes(Number(t.id)))
+        .sort((a, b) => L.svcMin(a.res_time) - L.svcMin(b.res_time));
+      const cur = st.res || st.soon;
+      const row = r => h('div', { class: 'fp-res' + (r === cur ? ' on' : ''), style: { cursor: 'default' } },
+        h('b', null, L.fromMin(L.svcMin(r.res_time))), h('span', null, r.name), h('span', { class: 'pax' }, r.party_size + ' άτ.'),
+        h('button', { class: 'btn small icon', title: 'Εκτύπωση κάρτας', 'aria-label': 'Εκτύπωση κάρτας ' + r.name, onclick: () => { close(); api.openPrintOne(r); } }, svg(IC.print)),
+        h('button', { class: 'btn small', onclick: () => { close(); api.openResForm(r); } }, 'Άνοιγμα'));
+      const close = api.openModal('Τραπέζι ' + t.name, [
+        h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } }, list.map(row)),
+        list.length > 1 ? h('button', { class: 'btn', style: { alignSelf: 'flex-start' }, onclick: () => { close(); api.openPrintOne(list.filter(r => r.status === 'confirmed'), t.name); } }, svg(IC.print), 'Κάρτες για όλες τις κρατήσεις του τραπεζιού') : null
+      ]);
+    }
+
     async function onTableClick(t, st, T, assignRes) {
       if (S.joinMode) {
         const id = Number(t.id);
@@ -565,7 +580,7 @@
         } catch (e) { toast(e.message, true); }
         return;
       }
-      if (st.res) return api.openResForm(st.res);
+      if (st.res || st.soon) return openTableMenu(t, st);
       if (t.active === false) { toast('Το τραπέζι είναι ανενεργό'); return; }
       api.openResForm(null, { res_time: L.fromMin(T), table_ids: [t.id], party_size: Math.min(+t.seats || 2, 2) });
     }
