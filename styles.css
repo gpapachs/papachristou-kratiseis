@@ -682,3 +682,8 @@ button.dt-row:hover { background: var(--surface-2); }
 .ra-foot { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
 .ra-foot .hint { flex: 1; }
 @media print { #alerts { display: none !important; } }
+
+/* ---------- SMS ---------- */
+.sms-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.sms-row .sms-send { min-height: 50px; border-radius: 16px; flex: 1 1 220px; }
+.sms-box { display: flex; flex-direction: column; gap: 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 14px; }

@@ -68,6 +68,19 @@
       async patchReservation(id, fields) { return chk(await sb.from('reservations').update(fields).eq('id', id).select().single()); },
       async deleteReservation(id) { chk(await sb.from('reservations').delete().eq('id', id)); },
 
+      /* SMS μέσω Apifon (edge function «sms») */
+      async sms(action, payload) {
+        const { data, error } = await sb.functions.invoke('sms', { body: Object.assign({ action }, payload || {}) });
+        if (error) {
+          let msg = error.message;
+          try { const j = await error.context.json(); if (j && j.error) msg = j.error; } catch (e) {}
+          throw new Error(msg);
+        }
+        if (data && data.error) throw new Error(data.error);
+        return data;
+      },
+      async listSmsLog(limit) { return chk(await sb.from('sms_log').select('*').order('created_at', { ascending: false }).limit(limit || 50)); },
+
       /* ειδοποιήσεις push σε αυτή τη συσκευή */
       async pushSubscribe(sub, kinds, device) {
         const j = sub.toJSON();
@@ -221,6 +234,16 @@
       },
       async patchReservation(id, f) { const r = db.reservations.find(x => x.id === id); Object.assign(r, f); emit('reservations'); return clone(r); },
       async deleteReservation(id) { db.reservations = db.reservations.filter(r => r.id !== id); emit('reservations'); },
+      async sms(action, p) {
+        await new Promise(r => setTimeout(r, 400));
+        if (action === 'balance') return { ok: true, balance: '25.0', subscriptions: [] };
+        const r = p && p.reservation_id ? db.reservations.find(x => x.id === p.reservation_id) : null;
+        const f = { confirm: 'confirm_sent_at', reminder: 'reminder_sent_at' }[p && p.kind];
+        if (r && f) { r[f] = new Date().toISOString(); emit('reservations'); }
+        (db.smslog = db.smslog || []).unshift({ id: ++db.seq, reservation_id: r ? r.id : null, kind: p.kind || action, phone: r ? r.phone : p.phone, body: p.text, parts: 1, ok: true, sent_by: 'demo', created_at: new Date().toISOString() });
+        save(); return { ok: true, parts: 1, demo: true };
+      },
+      async listSmsLog() { return clone(db.smslog || []); },
       async pushSubscribe(sub, kinds) { db.push = { endpoint: sub.endpoint, kinds }; save(); },
       async pushUnsubscribe() { delete db.push; save(); },
       async pushMine(endpoint) { return db.push && db.push.endpoint === endpoint ? clone(db.push) : null; },

@@ -1,7 +1,7 @@
 /* Κρατήσεις — Ψητοπωλείο Παπαχρήστου */
 (function () {
   'use strict';
-  const VERSION = '1.7.2';
+  const VERSION = '1.8.0';
   const L = window.Logic;
 
   const DEFAULT_SETTINGS = {
@@ -591,9 +591,13 @@
   /* ---------- Μηνύματα ---------- */
   function renderMessages(v) {
     const { conf, rem, tm } = pendingMessages();
-    v.append(h('div', { class: 'infobox' }, 'Τα μηνύματα ανοίγουν στο SMS / Viber / WhatsApp / email της συσκευής, έτοιμα για αποστολή. Μετά την αποστολή σημειώνονται εδώ ως σταλμένα.'));
+    v.append(h('div', { class: 'infobox' }, smsOn()
+      ? 'Τα SMS φεύγουν απευθείας ως «' + (S.settings.sms_sender || 'Apifon') + '» και σημειώνονται μόνα τους ως σταλμένα.' + (S.settings.sms_auto_reminder ? ' Οι υπενθυμίσεις για αύριο στέλνονται αυτόματα από τις ' + String(Number.isFinite(+S.settings.sms_reminder_hour) ? +S.settings.sms_reminder_hour : 12).padStart(2, '0') + ':00.' : '')
+      : 'Τα μηνύματα ανοίγουν στο SMS / Viber / WhatsApp / email της συσκευής, έτοιμα για αποστολή. Μετά την αποστολή σημειώνονται εδώ ως σταλμένα.'));
     const sec = (title, list, kind, empty) => {
-      v.append(h('h3', { style: { margin: '20px 0 8px', fontSize: '16px' } }, title, ' ', h('span', { class: 'tag' }, '(' + list.length + ')')));
+      const allBtn = smsOn() && list.some(r => r.phone && isMobile(r.phone))
+        ? h('button', { class: 'btn small primary', style: { marginLeft: 'auto' }, onclick: e => sendAllSms(list.filter(r => r.phone), kind, e.currentTarget) }, svg(IC.msg), 'Όλα με SMS') : null;
+      v.append(h('h3', { style: { margin: '20px 0 8px', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } }, title, ' ', h('span', { class: 'tag' }, '(' + list.length + ')'), allBtn));
       if (!list.length) { v.append(h('div', { class: 'empty', style: { padding: '20px' } }, empty)); return; }
       for (const r of list) {
         v.append(h('div', { class: 'card st-' + r.status },
@@ -659,8 +663,21 @@
       if (field) { try { await S.store.patchReservation(r.id, { [field]: new Date().toISOString() }); toast('Σημειώθηκε ως σταλμένο'); reload(); } catch (e) { toast(e.message, true); } }
       close(); if (after) after();
     } }, 'Στάλθηκε ✓');
+    let smsBox = null;
+    if (smsOn() && r.phone && isMobile(r.phone)) {
+      const info = h('span', { class: 'hint' });
+      const updInfo = () => { info.textContent = smsLabel(ta.value); };
+      updInfo(); ta.addEventListener('input', updInfo); seg.addEventListener('click', () => setTimeout(updInfo, 0));
+      const btn = h('button', { class: 'btn primary sms-send', onclick: async () => {
+        btn.disabled = true;
+        try { await sendResSms(r, k, ta.value); reload(); close(); if (after) after(); }
+        catch (e) { btn.disabled = false; toast(e.message, true); }
+      } }, svg(IC.msg), 'Αποστολή SMS' + (S.settings.sms_sender ? ' ως ' + S.settings.sms_sender : ''));
+      smsBox = h('div', { class: 'sms-row' }, btn, info);
+    }
     const close = openModal('Μήνυμα σε ' + r.name, [
-      seg, ta,
+      seg, ta, smsBox,
+      smsBox ? h('div', { class: 'section-title' }, 'ή από τη συσκευή σου') : null,
       h('div', { class: 'hint' }, num
         ? h('span', null, h('b', null, 'Viber:'), ' ανοίγει με έτοιμο το μήνυμα και διαλέγεις τον πελάτη. ', h('b', null, 'Viber στον αριθμό:'), ' ανοίγει κατευθείαν τη συνομιλία με τον πελάτη, ακόμα κι αν δεν τον έχεις στις επαφές. Αν το μήνυμα δεν μπει μόνο του, κάνε Επικόλληση (έχει ήδη αντιγραφεί). Στο PC χρειάζεται εγκατεστημένο το Viber Desktop.')
         : 'Δεν υπάρχει κινητό — μόνο email.'),
@@ -862,7 +879,11 @@
         close(); toast(isNew ? 'Η κράτηση αποθηκεύτηκε' : 'Αποθηκεύτηκε');
         if (data.res_date !== S.date) setDate(data.res_date); else reload();
         if ((saved.phone || saved.email)) {
-          if (isNew || (data.confirm_sent_at === null && L.isActive(saved))) openNotify(saved, 'confirm');
+          const needConfirm = isNew || (data.confirm_sent_at === null && L.isActive(saved));
+          if (needConfirm && smsOn() && S.settings.sms_auto_confirm && saved.phone && isMobile(saved.phone)) {
+            sendResSms(saved, 'confirm', L.fillTemplate(S.settings.tpl_confirm, saved, S.settings)).then(() => reload())
+              .catch(e => { toast('Δεν στάλθηκε SMS: ' + e.message, true); openNotify(saved, 'confirm'); });
+          } else if (needConfirm) openNotify(saved, 'confirm');
           else if (wasActive && saved.status === 'cancelled') openNotify(saved, 'cancel');
         }
       } catch (e) { saveBtn.disabled = false; toast('Σφάλμα: ' + e.message, true); }
@@ -1119,13 +1140,148 @@
           return h('label', { class: 'field' }, label, ta, prev);
         };
         content.append(
+          smsSettings(st, saveSettings),
+          h('div', { class: 'section-title', style: { marginTop: '8px' } }, 'Κείμενα μηνυμάτων'),
           h('p', { class: 'hint', style: { margin: 0 } }, 'Πεδία: ', ['{ονομα}', '{ονοματεπωνυμο}', '{καταστημα}', '{ατομα}', '{ημερα}', '{ημερομηνια}', '{ωρα}', '{τηλεφωνο}'].map(x => [h('code', null, x), ' '])),
           tpl('tpl_confirm', 'Επιβεβαίωση'), tpl('tpl_reminder', 'Υπενθύμιση (την προηγούμενη μέρα)'), tpl('tpl_cancel', 'Ακύρωση'),
-          h('div', { style: { display: 'flex', justifyContent: 'flex-end' } }, h('button', { class: 'btn primary', onclick: saveSettings }, 'Αποθήκευση μηνυμάτων')));
+          h('div', { style: { display: 'flex', justifyContent: 'flex-end' } }, h('button', { class: 'btn primary', onclick: saveSettings }, 'Αποθήκευση')));
       }
     }
     drawSeg(); draw();
     const closeSettings = openModal('Ρυθμίσεις', body, null, { wide: true });
+  }
+
+  /* ---------- SMS από το κατάστημα (Apifon) ---------- */
+  const smsOn = () => !!S.settings.sms_enabled;
+  const GSM7 = '@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !"#¤%&\'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà';
+  const GSM7X = '^{}\\[~]|€';
+  const GRL = { 'α': 'a', 'β': 'v', 'γ': 'g', 'δ': 'd', 'ε': 'e', 'ζ': 'z', 'η': 'i', 'θ': 'th', 'ι': 'i', 'κ': 'k', 'λ': 'l', 'μ': 'm', 'ν': 'n',
+    'ξ': 'x', 'ο': 'o', 'π': 'p', 'ρ': 'r', 'σ': 's', 'ς': 's', 'τ': 't', 'υ': 'y', 'φ': 'f', 'χ': 'ch', 'ψ': 'ps', 'ω': 'o' };
+  function greeklish(s) {
+    const chars = [...String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').normalize('NFC')
+      .replace(/[«»“”]/g, '"').replace(/[‘’]/g, "'").replace(/[–—]/g, '-').replace(/…/g, '...').replace(/·/g, '.')];
+    let out = '';
+    for (let i = 0; i < chars.length; i++) {
+      const c = chars[i], lo = c.toLowerCase(), up = c !== lo;
+      let t;
+      if (lo === 'ο' && (chars[i + 1] || '').toLowerCase() === 'υ') { t = 'ou'; i++; } else t = GRL[lo];
+      if (t == null) { out += c; continue; }
+      if (up) { const nu = chars[i + 1] && chars[i + 1] !== chars[i + 1].toLowerCase(); t = nu || t.length === 1 ? t.toUpperCase() : t[0].toUpperCase() + t.slice(1); }
+      out += t;
+    }
+    return out;
+  }
+  function smsInfo(text) {
+    const msg = S.settings.sms_greeklish ? greeklish(text) : String(text);
+    let gsm = true, n = 0;
+    for (const c of msg) { if (GSM7X.includes(c)) n += 2; else if (GSM7.includes(c)) n += 1; else { gsm = false; break; } }
+    if (gsm) return { msg, unicode: false, chars: n, parts: n <= 160 ? 1 : Math.ceil(n / 153) };
+    const u = [...msg].length;
+    return { msg, unicode: true, chars: u, parts: u <= 70 ? 1 : Math.ceil(u / 67) };
+  }
+  const isMobile = p => /^\+(?!30)\d{7,15}$|^\+306\d{9}$/.test(L.intlPhone(p));
+  function smsLabel(text) {
+    const i = smsInfo(text);
+    return i.parts + ' SMS · ' + i.chars + ' χαρ.' + (i.unicode ? ' (ελληνικά)' : S.settings.sms_greeklish ? ' (greeklish)' : '');
+  }
+  async function sendResSms(r, kind, text) {
+    const out = await S.store.sms('send', { reservation_id: r.id, kind, text });
+    toast('Στάλθηκε SMS στον/στην ' + String(r.name || '').split(' ')[0] + (out.parts > 1 ? ' (' + out.parts + ' μηνύματα)' : ''));
+    return out;
+  }
+  async function sendAllSms(list, kind, btn) {
+    if (!list.length) return;
+    if (!(await confirmBox('Αποστολή SMS', 'Να σταλούν ' + list.length + ' ' + (kind === 'confirm' ? 'επιβεβαιώσεις' : 'υπενθυμίσεις') + ' με SMS από «' + (S.settings.sms_sender || 'Apifon') + '»;', 'Αποστολή'))) return;
+    if (btn) btn.disabled = true;
+    let ok = 0; const bad = [];
+    for (const r of list) {
+      if (!isMobile(r.phone)) { bad.push(r.name + ': δεν είναι κινητό'); continue; }
+      try { await S.store.sms('send', { reservation_id: r.id, kind, text: L.fillTemplate(S.settings['tpl_' + kind], r, S.settings) }); ok++; }
+      catch (e) { bad.push(r.name + ': ' + e.message); }
+    }
+    toast('Στάλθηκαν ' + ok + ' SMS' + (bad.length ? ' · ' + bad.length + ' απέτυχαν' : ''), bad.length > 0);
+    if (bad.length) openModal('Δεν στάλθηκαν', h('ul', { class: 'warnbox', style: { paddingLeft: '28px', margin: 0 } }, bad.map(b => h('li', null, b))));
+    reload();
+  }
+
+  function smsSettings(st, saveSettings) {
+    const box = h('div', { class: 'sms-box' });
+    const chk = (key, label, hint) => h('label', { class: 'fp-check' },
+      h('input', { type: 'checkbox', checked: !!st[key], onchange: e => { st[key] = e.target.checked; draw(); } }),
+      h('span', null, label, hint ? h('span', { class: 'hint', style: { display: 'block', fontWeight: 500 } }, hint) : null));
+    const sample = { name: 'Γιώργος Παπαδόπουλος', party_size: 4, res_date: L.addDays(L.fmtDate(new Date()), 1), res_time: '21:00' };
+    const result = h('div', { class: 'hidden' });
+    const show = (cls, text) => { result.className = cls; result.textContent = text; };
+    const draw = () => {
+      box.innerHTML = '';
+      const prevS = S.settings; S.settings = st;     // για τον υπολογισμό των SMS με τις τρέχουσες επιλογές
+      const counts = ['confirm', 'reminder', 'cancel'].map(k => ({ confirm: 'Επιβεβαίωση', reminder: 'Υπενθύμιση', cancel: 'Ακύρωση' }[k] + ': ' + smsLabel(L.fillTemplate(st['tpl_' + k], sample, st))));
+      const gre = smsInfo(L.fillTemplate(st.tpl_confirm, sample, st)).msg;
+      S.settings = prevS;
+      const sender = h('input', { class: 'input', value: st.sms_sender || '', maxlength: 11, placeholder: 'π.χ. PAPAXRISTOU', autocapitalize: 'characters',
+        oninput: e => { e.target.value = e.target.value.replace(/[^A-Za-z0-9 .\-]/g, ''); st.sms_sender = e.target.value.trim(); } });
+      const hourSel = h('select', { class: 'input', style: { width: 'auto' }, onchange: e => { st.sms_reminder_hour = Number(e.target.value); } },
+        [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map(x => h('option', { value: x }, String(x).padStart(2, '0') + ':00')));
+      hourSel.value = String(Number.isFinite(+st.sms_reminder_hour) ? +st.sms_reminder_hour : 12);
+      const testPhone = h('input', { class: 'input', type: 'tel', placeholder: 'το κινητό σου, 69…', style: { flex: '1 1 160px' } });
+      box.append(...[
+        h('div', { class: 'section-title' }, 'SMS από το κατάστημα (Apifon)'),
+        h('p', { class: 'hint', style: { margin: 0 } }, 'Τα μηνύματα φεύγουν από τον server με όνομα αποστολέα αντί για τον αριθμό σου. Ο πελάτης δεν μπορεί να απαντήσει στο SMS — γι\' αυτό καλό είναι τα κείμενα να έχουν {τηλεφωνο}.'),
+        chk('sms_enabled', 'Ενεργά τα SMS', 'Εμφανίζεται κουμπί «Αποστολή SMS» σε κάθε μήνυμα προς πελάτη.'),
+        st.sms_enabled ? [
+          h('label', { class: 'field' }, 'Όνομα αποστολέα (όπως εγκρίθηκε στην Apifon)', sender,
+            h('span', { class: 'hint' }, 'Έως 11 λατινικοί χαρακτήρες. Αν το αφήσεις κενό, μπαίνει το προεπιλεγμένο του token στην Apifon.')),
+          chk('sms_greeklish', 'Αποστολή σε greeklish (φθηνότερο)', 'Τα ελληνικά χωράνε 70 χαρακτήρες ανά SMS, τα greeklish 160. Ένα συνηθισμένο μήνυμα: ελληνικά ≈ 3 SMS, greeklish = 1 SMS.'),
+          h('div', { class: 'history' }, counts.map(c => h('div', null, c)),
+            st.sms_greeklish ? h('div', { style: { marginTop: '6px', fontStyle: 'italic' } }, '«' + gre + '»') : null),
+          chk('sms_auto_confirm', 'Αυτόματη επιβεβαίωση με SMS', 'Μόλις αποθηκεύεται νέα κράτηση με κινητό, φεύγει μόνο του το SMS επιβεβαίωσης.'),
+          chk('sms_auto_reminder', 'Αυτόματη υπενθύμιση την προηγούμενη μέρα', 'Στέλνεται σε όσους έχουν κράτηση αύριο και δεν έχουν πάρει υπενθύμιση. Δεν στέλνεται μετά τις 22:00 ούτε σε όσους μόλις πήραν επιβεβαίωση.'),
+          st.sms_auto_reminder ? h('label', { class: 'field', style: { flexDirection: 'row', alignItems: 'center', gap: '10px' } }, 'Από τις', hourSel, h('span', { class: 'hint' }, 'ώρα Ελλάδας')) : null,
+          h('div', { class: 'row', style: { alignItems: 'center' } },
+            h('button', { class: 'btn', style: { flex: '0 0 auto' }, onclick: async e => {
+              const b = e.currentTarget; b.disabled = true; show('hint', 'Έλεγχος…');
+              try {
+                const r = await S.store.sms('balance');
+                const sub = (r.subscriptions || []).map(x => x.senderId + ': ' + x.available + '/' + x.total).join(', ');
+                show('notify-state on', '✓ Συνδέθηκε με την Apifon. Υπόλοιπο: ' + r.balance + (sub ? ' · πακέτα: ' + sub : ''));
+              } catch (err) { show('warnbox err', err.message); }
+              b.disabled = false;
+            } }, 'Έλεγχος σύνδεσης'),
+            testPhone,
+            h('button', { class: 'btn', style: { flex: '0 0 auto' }, onclick: async e => {
+              if (!isMobile(testPhone.value)) { toast('Γράψε ένα κινητό για τη δοκιμή', true); return; }
+              const b = e.currentTarget; b.disabled = true; show('hint', 'Αποθήκευση ρυθμίσεων και αποστολή…');
+              try {
+                await S.store.saveSettings(st); S.settings = Object.assign({}, S.settings, st);
+                const r = await S.store.sms('test', { phone: testPhone.value, text: L.fillTemplate(st.tpl_confirm, sample, st) });
+                show('notify-state on', '✓ Στάλθηκε δοκιμαστικό SMS (' + r.parts + ' μήνυμα' + (r.parts > 1 ? 'τα' : '') + '). Έλεγξε το κινητό σου.');
+              } catch (err) { show('warnbox err', err.message); }
+              b.disabled = false;
+            } }, 'Δοκιμαστικό SMS')),
+          result,
+          h('button', { class: 'btn ghost small', style: { alignSelf: 'flex-start' }, onclick: openSmsLog }, 'Ιστορικό SMS')
+        ] : null].flat().filter(Boolean));
+    };
+    draw();
+    return box;
+  }
+
+  async function openSmsLog() {
+    const body = h('div', null, h('p', { class: 'hint' }, 'Φόρτωση…'));
+    openModal('Ιστορικό SMS', body, null, { wide: true });
+    let list = [];
+    try { list = await S.store.listSmsLog(80); } catch (e) { body.innerHTML = ''; body.append(h('div', { class: 'warnbox err' }, e.message)); return; }
+    body.innerHTML = '';
+    const KIND = { confirm: 'Επιβεβαίωση', reminder: 'Υπενθύμιση', cancel: 'Ακύρωση', test: 'Δοκιμή' };
+    const total = list.filter(x => x.ok).reduce((n, x) => n + (x.parts || 1), 0);
+    body.append(h('p', { class: 'hint', style: { marginTop: 0 } }, 'Τελευταία ' + list.length + ' · ' + total + ' χρεώσιμα SMS'),
+      list.length ? h('div', { class: 'users' }, list.map(x => h('div', { class: 'user-row' },
+        h('span', { class: 'status ' + (x.ok ? 'seated' : 'cancelled') }, x.ok ? (x.parts || 1) + ' SMS' : 'Απέτυχε'),
+        h('div', { class: 'user-info' },
+          h('b', null, (KIND[x.kind] || x.kind) + ' · ' + (x.phone || '')),
+          h('span', null, new Date(x.created_at).toLocaleString('el-GR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) + (x.sent_by ? ' · ' + x.sent_by : '')),
+          x.error ? h('span', { style: { color: 'var(--bad)' } }, x.error) : h('span', null, x.body || ''))))) :
+        h('div', { class: 'empty' }, 'Δεν έχουν σταλεί SMS ακόμα.'));
   }
 
   /* ---------- Εκτύπωση: Α4 ή θερμικός εκτυπωτής 80mm ---------- */
