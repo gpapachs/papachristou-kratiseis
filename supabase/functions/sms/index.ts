@@ -43,16 +43,23 @@ async function logSms(row: Record<string, unknown>) {
 }
 
 /* ---------- ποιος καλεί ---------- */
+// Ο χρήστης βγαίνει από το token του: η βάση (PostgREST) ελέγχει την υπογραφή και τη λήξη του,
+// και με αυτό το token διαβάζουμε τη δική του γραμμή στο staff. Δεν χρειάζεται «ζωντανή» συνεδρία στο auth.
+const ANON = Deno.env.get('SUPABASE_ANON_KEY') || '';
 async function caller(req: Request) {
   const auth = req.headers.get('authorization') || '';
   if (!auth.startsWith('Bearer ')) return null;
-  const r = await fetch(URL_ + '/auth/v1/user', { headers: { apikey: SRK, Authorization: auth } });
+  let sub = '';
+  try {
+    const p = auth.slice(7).split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    sub = JSON.parse(atob(p + '='.repeat((4 - p.length % 4) % 4))).sub || '';
+  } catch (_) { return null; }
+  if (!/^[0-9a-f-]{36}$/.test(sub)) return null;
+  const r = await fetch(URL_ + '/rest/v1/staff?user_id=eq.' + sub + '&select=user_id,display_name,role,active', { headers: { apikey: ANON || SRK, Authorization: auth } });
   if (!r.ok) return null;
-  const u = await r.json();
-  if (!u || !u.id) return null;
-  const st = await rest('staff?user_id=eq.' + u.id + '&select=user_id,display_name,role,active');
+  const st = await r.json();
   const s = st && st[0];
-  return s && s.active ? s : null;
+  return s && s.active && s.user_id === sub ? s : null;
 }
 
 /* ---------- κείμενο / κωδικοποίηση ---------- */
@@ -209,7 +216,7 @@ Deno.serve(async (req) => {
     }
 
     const me = await caller(req);
-    if (!me) return json({ error: 'Χωρίς πρόσβαση' }, 401);
+    if (!me) return json({ error: 'Η σύνδεσή σου έληξε. Κάνε αποσύνδεση και ξανά σύνδεση στην εφαρμογή.' }, 401);
     const st = await settings();
 
     if (action === 'balance') {

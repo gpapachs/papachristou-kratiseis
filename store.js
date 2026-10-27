@@ -26,7 +26,7 @@
       async updateStaff(u) { chk(await sb.rpc('admin_update_user', { p_user: u.user_id, p_username: u.username, p_display: u.display_name, p_role: u.role, p_active: u.active })); },
       async setStaffPassword(id, password) { chk(await sb.rpc('admin_set_password', { p_user: id, p_password: password })); },
       async deleteStaff(id) { chk(await sb.rpc('admin_delete_user', { p_user: id })); },
-      async signOut() { await sb.auth.signOut(); },
+      async signOut() { await sb.auth.signOut({ scope: 'local' }); },   // μόνο αυτή η συσκευή — οι άλλες μένουν συνδεδεμένες
 
       async loadSettings() { const d = chk(await sb.from('res_settings').select('data').eq('id', 1).maybeSingle()); return d ? d.data : {}; },
       async saveSettings(data) { chk(await sb.from('res_settings').upsert({ id: 1, data })); },
