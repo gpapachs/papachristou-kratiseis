@@ -90,6 +90,14 @@
       async chatDelete(id) { chk(await sb.from('chat_messages').delete().eq('id', id)); },
       async chatUnread() { return chk(await sb.rpc('chat_unread')) || []; },
       async chatReads(room) { return chk(await sb.from('chat_reads').select('user_id,last_read_at').eq('room', room)); },
+      async chatLikes(room) { return chk(await sb.from('chat_likes').select('msg_id,user_id').eq('room', room)); },
+      async chatLike(msgId, room, on) {
+        if (on) chk(await sb.from('chat_likes').insert({ msg_id: msgId, room }));
+        else {
+          const { data } = await sb.auth.getSession();
+          chk(await sb.from('chat_likes').delete().eq('msg_id', msgId).eq('user_id', data.session.user.id));
+        }
+      },
       async chatMarkRead(room) {
         const { data } = await sb.auth.getSession(); if (!data.session) return;
         chk(await sb.from('chat_reads').upsert({ user_id: data.session.user.id, room, last_read_at: new Date().toISOString() }));
@@ -105,7 +113,7 @@
 
       subscribe(cb) {
         const ch = sb.channel('kratiseis');
-        ['reservations', 'res_areas', 'res_tables', 'res_settings', 'res_closures', 'chat_messages', 'chat_reads'].forEach(table =>
+        ['reservations', 'res_areas', 'res_tables', 'res_settings', 'res_closures', 'chat_messages', 'chat_reads', 'chat_likes'].forEach(table =>
           ch.on('postgres_changes', { event: '*', schema: 'public', table }, payload => cb(table, payload)));
         ch.subscribe();
         return () => sb.removeChannel(ch);
@@ -271,6 +279,13 @@
         return Object.values(out);
       },
       async chatMarkRead(room) { (db.chatReads = db.chatReads || {})[room] = new Date().toISOString(); save(); },
+      async chatLikes(room) { return clone((db.likes || []).filter(l => l.room === room)); },
+      async chatLike(msgId, room, on) {
+        db.likes = (db.likes || []).filter(l => !(l.msg_id === msgId && l.user_id === db.meId));
+        if (on) db.likes.push({ msg_id: msgId, user_id: db.meId, room });
+        save();
+        listeners.forEach(cb => cb('chat_likes', on ? { eventType: 'INSERT', new: { msg_id: msgId, user_id: db.meId, room } } : { eventType: 'DELETE', old: { msg_id: msgId, user_id: db.meId, room } }));
+      },
       async chatReads(room) { return (db.chatReads || {})[room] ? [{ user_id: db.meId, last_read_at: db.chatReads[room] }] : []; },
       async pushSubscribe(sub, kinds) { db.push = { endpoint: sub.endpoint, kinds }; save(); },
       async pushUnsubscribe() { delete db.push; save(); },

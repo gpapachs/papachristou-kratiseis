@@ -1,7 +1,7 @@
 /* Κρατήσεις — Ψητοπωλείο Παπαχρήστου */
 (function () {
   'use strict';
-  const VERSION = '2.1.0';
+  const VERSION = '2.2.0';
   const L = window.Logic;
 
   const DEFAULT_SETTINGS = {
@@ -245,6 +245,14 @@
   let rcTimer = null;
   function onRemoteChange(table, payload) {
     if (table === 'chat_messages') { if (payload) onChatEvent(payload); else refreshChatUnread(); return; }
+    if (table === 'chat_likes') {
+      const l = payload && (payload.new && payload.new.msg_id ? payload.new : payload.old);
+      if (!l || !CH.open || (l.room && l.room !== CH.room)) return;
+      const set = CH.likes[l.msg_id] = CH.likes[l.msg_id] || new Set();
+      if (payload.eventType === 'DELETE') set.delete(l.user_id); else set.add(l.user_id);
+      CH.render && CH.render();
+      return;
+    }
     if (table === 'chat_reads') { const r = payload && payload.new; if (r && CH.open && r.room === CH.room) { CH.reads[r.user_id] = r.last_read_at; CH.render && CH.render(); } return; }
     if (table === 'reservations' && payload) checkAlert(payload);
     clearTimeout(rcTimer);
@@ -1486,7 +1494,7 @@
   }
 
   /* ---------- Εσωτερική συνομιλία προσωπικού ---------- */
-  const CH = { open: null, room: null, staff: [], unread: {}, last: {}, msgs: [], reads: {}, render: null };
+  const CH = { open: null, room: null, staff: [], unread: {}, last: {}, msgs: [], reads: {}, likes: {}, render: null };
   const dmRoom = otherId => 'dm:' + [S.me.user_id, otherId].sort().join(':');
   const roomOther = room => room === 'all' ? null : room.split(':').slice(1).find(id => id !== S.me.user_id);
   function staffName(id) { const u = CH.staff.find(x => x.user_id === id); return u ? u.display_name : (id === S.me.user_id ? S.me.display_name : 'Χρήστης'); }
@@ -1627,6 +1635,14 @@
     }
     CH.drawRooms = drawRooms;
 
+    async function toggleLike(m) {
+      const set = CH.likes[m.id] = CH.likes[m.id] || new Set();
+      const on = !set.has(S.me.user_id);
+      if (on) set.add(S.me.user_id); else set.delete(S.me.user_id);
+      render();
+      try { await S.store.chatLike(m.id, CH.room, on); }
+      catch (e) { if (on) set.delete(S.me.user_id); else set.add(S.me.user_id); render(); toast(e.message, true); }
+    }
     // ποιοι (εκτός από μένα) έχουν διαβάσει ένα μήνυμα
     function readers(m) {
       const others = CH.room === 'all' ? CH.staff.filter(u => u.user_id !== S.me.user_id).map(u => u.user_id) : [roomOther(CH.room)];
@@ -1651,18 +1667,26 @@
         const pin = lines[0].startsWith('📌') ? lines.shift() : null;
         list.append(h('div', { class: 'msg' + (mine ? ' mine' : '') + (cont ? ' cont' : '') },
           !mine && !cont && CH.room === 'all' ? h('div', { class: 'msg-who' }, staffName(m.sender)) : null,
-          h('div', { class: 'msg-bubble' },
+          h('div', { class: 'msg-bubble', ondblclick: () => { if (!mine) toggleLike(m); } },
             pin ? h('button', { class: 'msg-pin', title: 'Άνοιγμα κράτησης', onclick: async () => {
               const rr = r || (await S.store.listReservations('2000-01-01', '2100-01-01').catch(() => [])).find(x => x.id === m.res_id);
               if (rr) { closeChat(); openResForm(rr); } else toast('Η κράτηση δεν βρέθηκε', true);
             } }, pin) : null,
             lines.length ? h('div', { class: 'msg-text' }, lines.join('\n')) : null,
-            h('span', { class: 'msg-time' }, fmtChatTime(m.created_at),
+            h('span', { class: 'msg-time' },
+              !mine && !(CH.likes[m.id] && CH.likes[m.id].has(S.me.user_id)) ? h('button', { class: 'msg-like-btn', title: 'Like', 'aria-label': 'Like', onclick: () => toggleLike(m) }, '👍') : null,
+              fmtChatTime(m.created_at),
               mine ? (() => { const rd = readers(m); return h('span', { class: 'msg-tick' + (rd.all ? ' read' : ''), title: rd.all ? 'Διαβάστηκε' : rd.seen.length ? 'Το διάβασαν ' + rd.seen.length + ' από ' + rd.others.length : 'Στάλθηκε' }, rd.seen.length ? '✓✓' : '✓'); })() : null,
               mine || isAdmin() ? h('button', { class: 'msg-del', title: 'Διαγραφή μηνύματος', 'aria-label': 'Διαγραφή μηνύματος', onclick: async () => {
                 if (!(await confirmBox('Διαγραφή μηνύματος', 'Να σβηστεί το μήνυμα για όλους;', 'Διαγραφή', true))) return;
                 try { await S.store.chatDelete(m.id); CH.msgs = CH.msgs.filter(x => x.id !== m.id); render(); } catch (e) { toast(e.message, true); }
               } }, '×') : null)),
+          (CH.likes[m.id] && CH.likes[m.id].size) ? (() => {
+            const ids = [...CH.likes[m.id]];
+            const me = ids.includes(S.me.user_id);
+            return h('button', { class: 'msg-likes' + (me ? ' on' : ''), title: 'Like από: ' + ids.map(staffName).join(', ') + (mine ? '' : (me ? ' — πάτα για αναίρεση' : ' — πάτα για like')),
+              onclick: () => { if (!mine) toggleLike(m); } }, '👍 ' + (ids.length > 1 || CH.room === 'all' ? ids.length + ' · ' : '') + (ids.length <= 2 ? ids.map(id => id === S.me.user_id ? 'εσύ' : staffName(id)).join(', ') : ''));
+          })() : null,
           m === lastMine ? (() => {
             const rd = readers(m);
             if (!rd.seen.length) return null;
@@ -1686,8 +1710,9 @@
       fillRes();
       drawRooms();
       try { CH.msgs = await S.store.chatList(rm); } catch (e) { CH.msgs = []; toast(e.message, true); }
-      CH.reads = {};
+      CH.reads = {}; CH.likes = {};
       try { (await S.store.chatReads(rm)).forEach(x => { CH.reads[x.user_id] = x.last_read_at; }); } catch (e) {}
+      try { (await S.store.chatLikes(rm)).forEach(x => { (CH.likes[x.msg_id] = CH.likes[x.msg_id] || new Set()).add(x.user_id); }); } catch (e) {}
       if (CH.room !== rm) return;
       render(true);
       CH.unread[rm] = 0; drawChatBadge(); drawRooms();
