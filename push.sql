@@ -127,3 +127,10 @@ create trigger res_push after insert or update of status on public.reservations 
 --   • private.res_soon_tick() κάθε 5′ (pg_cron 'kratiseis-soon'): κρατήσεις που ξεκινούν στα επόμενα 30′ (kind 'soon')
 --   • push_subs.kinds: προεπιλογή {new,cancel,change,soon}
 -- =====================================================================
+
+-- =====================================================================
+-- v2.0 — εσωτερική συνομιλία προσωπικού (migration staff_chat_v2_0, έχει ήδη περάσει)
+--   • chat_messages (room 'all' ή 'dm:<uuid>:<uuid>'), chat_reads, chat_can(), chat_unread()
+--   • realtime στο chat_messages, push τύπου 'chat' (trigger chat_push → notify-reservation)
+--   • pg_cron 'kratiseis-chat-cleanup': σβήνει μηνύματα πάνω από 90 μέρες
+-- =====================================================================

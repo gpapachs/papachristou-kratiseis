@@ -81,6 +81,19 @@
       },
       async listSmsLog(limit) { return chk(await sb.from('sms_log').select('*').order('created_at', { ascending: false }).limit(limit || 50)); },
 
+      /* εσωτερική συνομιλία προσωπικού */
+      async chatList(room, limit) {
+        const d = chk(await sb.from('chat_messages').select('*').eq('room', room).order('created_at', { ascending: false }).limit(limit || 150));
+        return d.reverse();
+      },
+      async chatSend(room, body, resId) { return chk(await sb.from('chat_messages').insert({ room, body, res_id: resId || null }).select().single()); },
+      async chatDelete(id) { chk(await sb.from('chat_messages').delete().eq('id', id)); },
+      async chatUnread() { return chk(await sb.rpc('chat_unread')) || []; },
+      async chatMarkRead(room) {
+        const { data } = await sb.auth.getSession(); if (!data.session) return;
+        chk(await sb.from('chat_reads').upsert({ user_id: data.session.user.id, room, last_read_at: new Date().toISOString() }));
+      },
+
       /* ειδοποιήσεις push σε αυτή τη συσκευή */
       async pushSubscribe(sub, kinds, device) {
         const j = sub.toJSON();
@@ -91,7 +104,7 @@
 
       subscribe(cb) {
         const ch = sb.channel('kratiseis');
-        ['reservations', 'res_areas', 'res_tables', 'res_settings', 'res_closures'].forEach(table =>
+        ['reservations', 'res_areas', 'res_tables', 'res_settings', 'res_closures', 'chat_messages'].forEach(table =>
           ch.on('postgres_changes', { event: '*', schema: 'public', table }, payload => cb(table, payload)));
         ch.subscribe();
         return () => sb.removeChannel(ch);
@@ -244,6 +257,19 @@
         save(); return { ok: true, parts: 1, demo: true };
       },
       async listSmsLog() { return clone(db.smslog || []); },
+      async chatList(room) { return clone((db.chat || []).filter(m => m.room === room).slice(-150)); },
+      async chatSend(room, body, resId) {
+        const m = { id: ++db.seq, room, sender: db.meId, body, res_id: resId || null, created_at: new Date().toISOString() };
+        (db.chat = db.chat || []).push(m); save(); listeners.forEach(cb => cb('chat_messages', { eventType: 'INSERT', new: clone(m) })); return clone(m);
+      },
+      async chatDelete(id) { db.chat = (db.chat || []).filter(m => m.id !== id); save(); listeners.forEach(cb => cb('chat_messages', { eventType: 'DELETE', old: { id } })); },
+      async chatUnread() {
+        const reads = db.chatReads || {}; const out = {};
+        (db.chat || []).forEach(m => { const o = out[m.room] = out[m.room] || { room: m.room, unread: 0, last_at: m.created_at };
+          o.last_at = m.created_at; if (m.sender !== db.meId && m.created_at > (reads[m.room] || '')) o.unread++; });
+        return Object.values(out);
+      },
+      async chatMarkRead(room) { (db.chatReads = db.chatReads || {})[room] = new Date().toISOString(); save(); },
       async pushSubscribe(sub, kinds) { db.push = { endpoint: sub.endpoint, kinds }; save(); },
       async pushUnsubscribe() { delete db.push; save(); },
       async pushMine(endpoint) { return db.push && db.push.endpoint === endpoint ? clone(db.push) : null; },

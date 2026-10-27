@@ -1,4 +1,4 @@
-// Ειδοποιήσεις (push) στο προσωπικό για νέες / ακυρωμένες / αλλαγμένες κρατήσεις και «σε 30′ έρχεται».
+// Ειδοποιήσεις (push) στο προσωπικό: νέες / ακυρωμένες / αλλαγμένες κρατήσεις, «σε 30′ έρχεται» και μηνύματα συνομιλίας.
 // Καλείται μόνο από τη βάση (trigger / pg_cron) με μυστικό κλειδί στο header x-hook-secret.
 import { sendPush } from './webpush.ts';
 
@@ -36,9 +36,23 @@ Deno.serve(async (req) => {
     if (req.headers.get('x-hook-secret') !== cfg.hook_secret) return new Response('forbidden', { status: 403 });
 
     const { kind, record: r, actor, old } = await req.json();
-    if (!r || !['new', 'cancel', 'change', 'soon'].includes(kind)) return new Response('ignored');
+    if (!r || !['new', 'cancel', 'change', 'soon', 'chat'].includes(kind)) return new Response('ignored');
 
-    const subs = await rpc('push_targets', { p_kind: kind, p_exclude: actor || null });
+    let subs, data;
+    if (kind === 'chat') {
+      // μήνυμα συνομιλίας: σε όλους (room 'all') ή μόνο στον άλλον της ιδιωτικής συνομιλίας
+      const users = r.room === 'all' ? null : String(r.room).split(':').slice(1);
+      subs = await rpc('push_targets_users', { p_kind: 'chat', p_users: users, p_exclude: actor || null });
+      if (!subs.length) return Response.json({ sent: 0 });
+      const text = String(r.body || '');
+      data = {
+        title: '💬 ' + (r.room === 'all' ? 'Ομάδα · ' : '') + (r.sender_name || 'Μήνυμα'),
+        body: text.length > 300 ? text.slice(0, 299) + '…' : text,
+        tag: 'chat-' + r.room, kind: 'chat', room: r.room,
+        url: './?chat=' + encodeURIComponent(r.room)
+      };
+    } else {
+    subs = await rpc('push_targets', { p_kind: kind, p_exclude: actor || null });
     if (!subs.length) return Response.json({ sent: 0 });
 
     const allIds = [...new Set([...(r.table_ids || []), ...((old && old.table_ids) || [])].map(Number))];
@@ -64,10 +78,11 @@ Deno.serve(async (req) => {
       r.notes ? '📝 ' + r.notes : null,
       kind === 'new' && r.created_by ? 'από ' + r.created_by : null
     ].filter(Boolean);
-    const data = {
+    data = {
       title, body: lines.join('\n'), tag: 'res-' + r.id + '-' + kind + (kind === 'change' ? '-' + Date.now() : ''), kind,
       url: './?date=' + r.res_date + '&res=' + r.id
     };
+    }
 
     const vapid = { publicKey: cfg.vapid_public, privateKey: cfg.vapid_private, subject: cfg.vapid_subject };
     const gone: string[] = [];

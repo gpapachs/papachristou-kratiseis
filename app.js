@@ -1,7 +1,7 @@
 /* Κρατήσεις — Ψητοπωλείο Παπαχρήστου */
 (function () {
   'use strict';
-  const VERSION = '1.9.1';
+  const VERSION = '2.0.0';
   const L = window.Logic;
 
   const DEFAULT_SETTINGS = {
@@ -223,22 +223,24 @@
     renderShell();
     await reload();
     if (/[?&]new=1/.test(location.search)) { history.replaceState(null, '', location.pathname + (S.store.demo ? '?demo' : '')); openResForm(null, {}); }
-    else if (/[?&](date|res)=/.test(location.search)) { const u = location.href; history.replaceState(null, '', location.pathname + (S.store.demo ? '?demo' : '')); openFromUrl(u); }
+    else if (/[?&](date|res|chat)=/.test(location.search)) { const u = location.href; history.replaceState(null, '', location.pathname + (S.store.demo ? '?demo' : '')); openFromUrl(u); }
     if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => {
       if (!e.data) return;
       if (e.data.type === 'open') openFromUrl(e.data.url);
-      if (e.data.type === 'push') showPushAlert(e.data.data || {});
+      if (e.data.type === 'push' && (e.data.data || {}).kind !== 'chat') showPushAlert(e.data.data || {});   // τα μηνύματα τα δείχνει η ζωντανή σύνδεση
     });
     refreshBell();
+    loadChatStaff().then(refreshChatUnread);
     if (unsub) unsub();
     unsub = S.store.subscribe(onRemoteChange);
     // ανανέωση "τώρα" γραμμής και ημερομηνίας κάθε λεπτό
     setInterval(() => { if (S.view === 'tables' || (S.view === 'floor' && !document.querySelector('.overlay'))) renderView(); }, 60000);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) reload(); });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) { reload(); refreshChatUnread(); } });
   }
 
   let rcTimer = null;
   function onRemoteChange(table, payload) {
+    if (table === 'chat_messages') { if (payload) onChatEvent(payload); else refreshChatUnread(); return; }
     if (table === 'reservations' && payload) checkAlert(payload);
     clearTimeout(rcTimer);
     rcTimer = setTimeout(async () => {
@@ -284,6 +286,8 @@
         h('div', { class: 'spacer' }),
         h('button', { class: 'btn' + (installEvt ? '' : ' hidden'), id: 'install-btn', onclick: installApp }, svg(IC.download), h('span', { class: 'hide-sm' }, 'Εγκατάσταση')),
         h('button', { class: 'btn primary', onclick: () => openResForm(null, {}) }, svg(IC.plus), 'Νέα κράτηση'),
+        h('button', { class: 'btn icon chat-btn', id: 'chat-btn', title: 'Μηνύματα προσωπικού', 'aria-label': 'Μηνύματα προσωπικού', onclick: () => openChat() },
+          svg('<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>')),
         h('button', { class: 'btn icon bell-btn', id: 'bell-btn', title: 'Ειδοποιήσεις', 'aria-label': 'Ειδοποιήσεις', onclick: openNotifySettings }, svg(IC.bellOff)),
         h('button', { class: 'btn icon', title: 'Ρυθμίσεις', 'aria-label': 'Ρυθμίσεις', onclick: openSettings }, svg(IC.gear)),
         h('button', { class: 'btn user-btn', title: 'Ο λογαριασμός μου', 'aria-label': 'Ο λογαριασμός μου', onclick: openAccount },
@@ -1476,11 +1480,215 @@
     setTimeout(() => { try { fr.contentWindow.focus(); fr.contentWindow.print(); } catch (e) { toast('Δεν άνοιξε η εκτύπωση: ' + e.message, true); } }, 250);
   }
 
+  /* ---------- Εσωτερική συνομιλία προσωπικού ---------- */
+  const CH = { open: null, room: null, staff: [], unread: {}, last: {}, msgs: [], render: null };
+  const dmRoom = otherId => 'dm:' + [S.me.user_id, otherId].sort().join(':');
+  const roomOther = room => room === 'all' ? null : room.split(':').slice(1).find(id => id !== S.me.user_id);
+  function staffName(id) { const u = CH.staff.find(x => x.user_id === id); return u ? u.display_name : (id === S.me.user_id ? S.me.display_name : 'Χρήστης'); }
+  function roomTitle(room) { return room === 'all' ? 'Όλη η ομάδα' : staffName(roomOther(room)); }
+
+  async function loadChatStaff() {
+    try { CH.staff = (await S.store.listStaff()).filter(u => u.active); } catch (e) { CH.staff = []; }
+  }
+  async function refreshChatUnread() {
+    try {
+      const rows = await S.store.chatUnread();
+      CH.unread = {}; CH.last = {};
+      rows.forEach(r => { CH.unread[r.room] = Number(r.unread) || 0; CH.last[r.room] = r.last_at; });
+    } catch (e) { /* ο πίνακας μπορεί να μην υπάρχει ακόμα */ }
+    drawChatBadge();
+  }
+  function drawChatBadge() {
+    const b = $('#chat-btn'); if (!b) return;
+    const n = Object.values(CH.unread).reduce((a, x) => a + x, 0);
+    let bd = b.querySelector('.badge');
+    if (!n) { if (bd) bd.remove(); return; }
+    if (!bd) { bd = h('span', { class: 'badge dot' }); b.append(bd); }
+    bd.textContent = n > 99 ? '99+' : n;
+  }
+
+  function onChatEvent(p) {
+    if (p.eventType === 'DELETE') {
+      const id = p.old && p.old.id;
+      if (CH.open && CH.msgs.some(m => m.id === id)) { CH.msgs = CH.msgs.filter(m => m.id !== id); CH.render && CH.render(); }
+      return;
+    }
+    const m = p.new; if (!m || !m.room) return;
+    CH.last[m.room] = m.created_at;
+    const viewing = CH.open && CH.room === m.room && !document.hidden;
+    if (viewing) {
+      if (!CH.msgs.some(x => x.id === m.id)) { CH.msgs.push(m); CH.render && CH.render(true); }
+      if (m.sender !== S.me.user_id) S.store.chatMarkRead(m.room).catch(() => {});
+    } else if (m.sender !== S.me.user_id) {
+      CH.unread[m.room] = (CH.unread[m.room] || 0) + 1;
+      showChatAlert(m);
+    }
+    drawChatBadge();
+    if (CH.open && CH.drawRooms) CH.drawRooms();
+  }
+
+  function showChatAlert(m) {
+    let box = $('#alerts');
+    if (!box) { box = h('div', { id: 'alerts' }); document.body.append(box); }
+    const old = box.querySelector('[data-room="' + m.room + '"]'); if (old) old.remove();
+    const el = h('div', { class: 'res-alert chat', role: 'alert', 'data-room': m.room },
+      h('div', { class: 'ra-head' }, h('b', null, '💬 ' + (m.room === 'all' ? 'Ομάδα · ' : '') + staffName(m.sender)),
+        h('button', { class: 'btn ghost icon small', 'aria-label': 'Κλείσιμο', onclick: () => el.remove() }, svg(IC.x))),
+      h('div', { class: 'ra-line' }, m.body.length > 200 ? m.body.slice(0, 199) + '…' : m.body),
+      h('div', { class: 'ra-foot' }, h('span', { class: 'hint' }),
+        h('button', { class: 'btn small primary', onclick: () => { el.remove(); openChat(m.room); } }, 'Απάντηση')));
+    box.prepend(el);
+    while (box.children.length > 3) box.lastElementChild.remove();
+    beep();
+    setTimeout(() => el.remove(), 45000);
+  }
+
+  function fmtChatTime(iso) {
+    const d = new Date(iso);
+    const hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    const today = L.fmtDate(new Date()), day = L.fmtDate(d);
+    return day === today ? hm : L.prettyDate(day) + ' ' + hm;
+  }
+  function dayHeading(iso) {
+    const day = L.fmtDate(new Date(iso)), today = L.fmtDate(new Date());
+    return day === today ? 'Σήμερα' : day === L.addDays(today, -1) ? 'Χθες' : L.dayName(day) + ' ' + L.prettyDate(day);
+  }
+
+  async function openChat(room) {
+    if (!CH.staff.length) await loadChatStaff();
+    if (CH.open) { if (CH.select) CH.select(room || CH.room || 'all'); return; }
+    const rooms = h('div', { class: 'chat-rooms' });
+    const head = h('div', { class: 'chat-head' });
+    const list = h('div', { class: 'chat-list' });
+    const ta = h('textarea', { class: 'input chat-input', rows: 1, placeholder: 'Γράψε μήνυμα…', maxlength: 2000 });
+    let attach = null;
+    const attachBox = h('div', { class: 'chat-attach hidden' });
+    const resSel = h('select', { class: 'input chat-res', 'aria-label': 'Κράτηση', onchange: e => {
+      const r = S.dayRes.find(x => String(x.id) === e.target.value); e.target.value = '';
+      if (!r) return;
+      attach = r;
+      attachBox.innerHTML = '';
+      attachBox.append(h('span', null, '📌 ' + L.fromMin(L.svcMin(r.res_time)) + ' ' + r.name + ' · ' + r.party_size + ' άτ.' + (tableNames(r.table_ids) ? ' · ' + tableNames(r.table_ids) : '')),
+        h('button', { class: 'btn ghost icon small', 'aria-label': 'Αφαίρεση', onclick: () => { attach = null; attachBox.classList.add('hidden'); } }, svg(IC.x)));
+      attachBox.classList.remove('hidden');
+      ta.focus();
+    } });
+    const fillRes = () => {
+      resSel.innerHTML = '';
+      resSel.append(h('option', { value: '' }, 'Επισύναψη κράτησης…'));
+      S.dayRes.filter(L.isActive).sort((a, b) => L.svcMin(a.res_time) - L.svcMin(b.res_time))
+        .forEach(r => resSel.append(h('option', { value: r.id }, L.fromMin(L.svcMin(r.res_time)) + ' · ' + r.name + ' · ' + r.party_size + ' άτ.')));
+    };
+    const sendBtn = h('button', { class: 'btn primary icon chat-send', 'aria-label': 'Αποστολή', onclick: () => send() }, svg('<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>'));
+    const grow = () => { ta.style.height = 'auto'; ta.style.height = Math.min(140, ta.scrollHeight) + 'px'; };
+    ta.addEventListener('input', grow);
+    ta.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !isTouch()) { e.preventDefault(); send(); } });
+    async function send() {
+      let body = ta.value.trim();
+      if (attach) {
+        const ref = '📌 ' + L.fromMin(L.svcMin(attach.res_time)) + ' ' + attach.name + ' · ' + attach.party_size + ' άτ.' + (tableNames(attach.table_ids) ? ' · ' + tableNames(attach.table_ids) : '');
+        body = body ? ref + '\n' + body : ref;
+      }
+      if (!body) return;
+      sendBtn.disabled = true;
+      try {
+        const m = await S.store.chatSend(CH.room, body, attach ? attach.id : null);
+        if (!CH.msgs.some(x => x.id === m.id)) CH.msgs.push(m);
+        ta.value = ''; grow(); attach = null; attachBox.classList.add('hidden');
+        render(true);
+      } catch (e) { toast(e.message, true); }
+      sendBtn.disabled = false;
+      if (!isTouch()) ta.focus();
+    }
+
+    const wrap = h('div', { class: 'chat' },
+      h('div', { class: 'chat-side' }, h('div', { class: 'chat-side-t' }, 'Συνομιλίες'), rooms),
+      h('div', { class: 'chat-main' }, head, list, attachBox,
+        h('div', { class: 'chat-compose' },
+          h('label', { class: 'btn icon chat-pin', title: 'Επισύναψη κράτησης της ημέρας' }, svg('<path d="M12 17v5"/><path d="M9 10.8V5h6v5.8l2.4 3.2a1 1 0 0 1-.8 1.6H7.4a1 1 0 0 1-.8-1.6Z"/><path d="M8 5h8"/>'), resSel),
+          ta, sendBtn)));
+
+    function drawRooms() {
+      rooms.innerHTML = '';
+      const items = [{ room: 'all', name: 'Όλη η ομάδα', sub: CH.staff.length + ' άτομα' }]
+        .concat(CH.staff.filter(u => u.user_id !== S.me.user_id).map(u => ({ room: dmRoom(u.user_id), name: u.display_name, sub: u.role === 'admin' ? 'Διαχειριστής' : 'Προσωπικό', user: u })));
+      items.forEach(it => {
+        const n = CH.unread[it.room] || 0;
+        rooms.append(h('button', { class: 'chat-room' + (CH.room === it.room ? ' on' : '') + (n ? ' unread' : ''), onclick: () => selectRoom(it.room) },
+          h('span', { class: 'avatar' + (it.room === 'all' ? ' team' : it.user && it.user.role === 'admin' ? ' admin' : '') }, it.room === 'all' ? '👥' : initials(it.name)),
+          h('span', { class: 'chat-room-t' }, h('b', null, it.name), h('small', null, CH.last[it.room] ? fmtChatTime(CH.last[it.room]) : it.sub)),
+          n ? h('span', { class: 'badge' }, n) : null));
+      });
+    }
+    CH.drawRooms = drawRooms;
+
+    function render(scroll) {
+      const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
+      list.innerHTML = '';
+      if (!CH.msgs.length) list.append(h('div', { class: 'chat-empty' }, CH.room === 'all' ? 'Κανένα μήνυμα ακόμα. Ό,τι γράψεις εδώ το βλέπει όλη η ομάδα.' : 'Ξεκίνα ιδιωτική συνομιλία με ' + roomTitle(CH.room) + '.'));
+      let lastDay = null, lastSender = null, lastAt = 0;
+      CH.msgs.forEach(m => {
+        const day = L.fmtDate(new Date(m.created_at));
+        if (day !== lastDay) { list.append(h('div', { class: 'chat-day' }, h('span', null, dayHeading(m.created_at)))); lastDay = day; lastSender = null; }
+        const mine = m.sender === S.me.user_id;
+        const t = new Date(m.created_at).getTime();
+        const cont = lastSender === m.sender && t - lastAt < 5 * 60000;
+        lastSender = m.sender; lastAt = t;
+        const r = m.res_id ? S.dayRes.find(x => x.id === m.res_id) : null;
+        const lines = String(m.body).split('\n');
+        const pin = lines[0].startsWith('📌') ? lines.shift() : null;
+        list.append(h('div', { class: 'msg' + (mine ? ' mine' : '') + (cont ? ' cont' : '') },
+          !mine && !cont && CH.room === 'all' ? h('div', { class: 'msg-who' }, staffName(m.sender)) : null,
+          h('div', { class: 'msg-bubble' },
+            pin ? h('button', { class: 'msg-pin', title: 'Άνοιγμα κράτησης', onclick: async () => {
+              const rr = r || (await S.store.listReservations('2000-01-01', '2100-01-01').catch(() => [])).find(x => x.id === m.res_id);
+              if (rr) { closeChat(); openResForm(rr); } else toast('Η κράτηση δεν βρέθηκε', true);
+            } }, pin) : null,
+            lines.length ? h('div', { class: 'msg-text' }, lines.join('\n')) : null,
+            h('span', { class: 'msg-time' }, fmtChatTime(m.created_at),
+              mine || isAdmin() ? h('button', { class: 'msg-del', title: 'Διαγραφή μηνύματος', 'aria-label': 'Διαγραφή μηνύματος', onclick: async () => {
+                if (!(await confirmBox('Διαγραφή μηνύματος', 'Να σβηστεί το μήνυμα για όλους;', 'Διαγραφή', true))) return;
+                try { await S.store.chatDelete(m.id); CH.msgs = CH.msgs.filter(x => x.id !== m.id); render(); } catch (e) { toast(e.message, true); }
+              } }, '×') : null))));
+      });
+      if (scroll || atBottom) requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
+    }
+    CH.render = render;
+
+    async function selectRoom(rm) {
+      CH.room = rm;
+      wrap.classList.add('in-room');
+      head.innerHTML = '';
+      head.append(
+        h('button', { class: 'btn ghost icon chat-back', 'aria-label': 'Πίσω', onclick: () => { wrap.classList.remove('in-room'); } }, svg(IC.left)),
+        h('span', { class: 'avatar' + (rm === 'all' ? ' team' : '') }, rm === 'all' ? '👥' : initials(roomTitle(rm))),
+        h('div', null, h('b', null, roomTitle(rm)), h('small', null, rm === 'all' ? 'Το βλέπουν όλοι' : 'Ιδιωτικά')));
+      list.innerHTML = ''; list.append(h('div', { class: 'chat-empty' }, 'Φόρτωση…'));
+      fillRes();
+      drawRooms();
+      try { CH.msgs = await S.store.chatList(rm); } catch (e) { CH.msgs = []; toast(e.message, true); }
+      if (CH.room !== rm) return;
+      render(true);
+      CH.unread[rm] = 0; drawChatBadge(); drawRooms();
+      S.store.chatMarkRead(rm).catch(() => {});
+      if (!isTouch()) ta.focus();
+    }
+    CH.select = selectRoom;
+
+    const closeM = openModal('Μηνύματα προσωπικού', wrap, null, { wide: true, onClose: () => { CH.open = null; CH.render = null; CH.drawRooms = null; } });
+    CH.open = closeM;
+    wrap.closest('.modal').classList.add('chat-modal');
+    drawRooms();
+    // σε μεγάλη οθόνη ανοίγει κατευθείαν η πρώτη συνομιλία· σε κινητό πρώτα η λίστα (εκτός αν ζητήθηκε συγκεκριμένη)
+    if (room || window.matchMedia('(min-width: 700px)').matches) selectRoom(room || 'all');
+  }
+  function closeChat() { if (CH.open) CH.open(); }
+
   /* ---------- Ειδοποιήσεις προσωπικού (push + μέσα στην εφαρμογή) ---------- */
   const VAPID_PUBLIC = (window.KRATISEIS_CONFIG || {}).VAPID_PUBLIC_KEY || 'BOYX1nh227jb1m6GwIn63WvNefH7oZFXJ1W2MI0PXuPjUpD7pihrsdhLMR0CNdA2NdpgLT2qWnYy7Cgacv8Gkz4';
   const KINDS_KEY = 'kratiseis-notify-kinds';
   const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
-  const ALL_KINDS = ['new', 'cancel', 'change', 'soon'];
+  const ALL_KINDS = ['new', 'cancel', 'change', 'soon', 'chat'];
   function localKinds() { try { const k = JSON.parse(localStorage.getItem(KINDS_KEY)); if (Array.isArray(k)) return k; } catch (e) {} return ALL_KINDS.slice(); }
   function setLocalKinds(k) { try { localStorage.setItem(KINDS_KEY, JSON.stringify(k)); } catch (e) {} }
   function b64ToBytes(s) {
@@ -1560,7 +1768,8 @@
         h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
           chk('new', 'Νέες κρατήσεις'), chk('cancel', 'Ακυρώσεις κρατήσεων'),
           chk('change', 'Αλλαγές κρατήσεων (μέρα, ώρα, άτομα, τραπέζι)'),
-          chk('soon', '30 λεπτά πριν έρθει ο πελάτης')),
+          chk('soon', '30 λεπτά πριν έρθει ο πελάτης'),
+          chk('chat', 'Μηνύματα από συναδέλφους')),
         h('p', { class: 'hint', style: { margin: 0 } }, 'Η ειδοποίηση έχει όνομα, άτομα, μέρα/ώρα, τραπέζι, τηλέφωνο και σημειώσεις — στις αλλαγές και τι άλλαξε (π.χ. Ώρα 20:00 → 21:00). Δεν ειδοποιείσαι για ό,τι κάνεις εσύ. Όταν η εφαρμογή είναι ανοιχτή, εμφανίζεται μήνυμα πάνω στην οθόνη με ήχο.'));
       const acts = h('div', { class: 'row', style: { justifyContent: 'flex-end' } });
       if (st.supported && st.on) {
@@ -1661,6 +1870,7 @@
   async function openFromUrl(u) {
     let q;
     try { q = new URL(u, location.href).searchParams; } catch (e) { return; }
+    if (q.get('chat')) { openChat(q.get('chat')); return; }
     const d = q.get('date'), id = Number(q.get('res'));
     if (d && /^\d{4}-\d{2}-\d{2}$/.test(d) && d !== S.date) { S.date = d; S.assignId = null; const di = $('#date-input'); if (di) di.value = d; }
     S.view = 'list';
