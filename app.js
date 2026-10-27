@@ -1,7 +1,7 @@
 /* Κρατήσεις — Ψητοπωλείο Παπαχρήστου */
 (function () {
   'use strict';
-  const VERSION = '2.0.0';
+  const VERSION = '2.1.0';
   const L = window.Logic;
 
   const DEFAULT_SETTINGS = {
@@ -235,12 +235,17 @@
     unsub = S.store.subscribe(onRemoteChange);
     // ανανέωση "τώρα" γραμμής και ημερομηνίας κάθε λεπτό
     setInterval(() => { if (S.view === 'tables' || (S.view === 'floor' && !document.querySelector('.overlay'))) renderView(); }, 60000);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) { reload(); refreshChatUnread(); } });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) return;
+      reload(); refreshChatUnread();
+      if (CH.open && CH.room) S.store.chatMarkRead(CH.room).catch(() => {});
+    });
   }
 
   let rcTimer = null;
   function onRemoteChange(table, payload) {
     if (table === 'chat_messages') { if (payload) onChatEvent(payload); else refreshChatUnread(); return; }
+    if (table === 'chat_reads') { const r = payload && payload.new; if (r && CH.open && r.room === CH.room) { CH.reads[r.user_id] = r.last_read_at; CH.render && CH.render(); } return; }
     if (table === 'reservations' && payload) checkAlert(payload);
     clearTimeout(rcTimer);
     rcTimer = setTimeout(async () => {
@@ -1481,7 +1486,7 @@
   }
 
   /* ---------- Εσωτερική συνομιλία προσωπικού ---------- */
-  const CH = { open: null, room: null, staff: [], unread: {}, last: {}, msgs: [], render: null };
+  const CH = { open: null, room: null, staff: [], unread: {}, last: {}, msgs: [], reads: {}, render: null };
   const dmRoom = otherId => 'dm:' + [S.me.user_id, otherId].sort().join(':');
   const roomOther = room => room === 'all' ? null : room.split(':').slice(1).find(id => id !== S.me.user_id);
   function staffName(id) { const u = CH.staff.find(x => x.user_id === id); return u ? u.display_name : (id === S.me.user_id ? S.me.display_name : 'Χρήστης'); }
@@ -1622,8 +1627,15 @@
     }
     CH.drawRooms = drawRooms;
 
+    // ποιοι (εκτός από μένα) έχουν διαβάσει ένα μήνυμα
+    function readers(m) {
+      const others = CH.room === 'all' ? CH.staff.filter(u => u.user_id !== S.me.user_id).map(u => u.user_id) : [roomOther(CH.room)];
+      const seen = others.filter(id => CH.reads[id] && CH.reads[id] >= m.created_at);
+      return { seen, all: others.length > 0 && seen.length === others.length, others };
+    }
     function render(scroll) {
       const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
+      const lastMine = [...CH.msgs].reverse().find(m => m.sender === S.me.user_id);
       list.innerHTML = '';
       if (!CH.msgs.length) list.append(h('div', { class: 'chat-empty' }, CH.room === 'all' ? 'Κανένα μήνυμα ακόμα. Ό,τι γράψεις εδώ το βλέπει όλη η ομάδα.' : 'Ξεκίνα ιδιωτική συνομιλία με ' + roomTitle(CH.room) + '.'));
       let lastDay = null, lastSender = null, lastAt = 0;
@@ -1646,10 +1658,17 @@
             } }, pin) : null,
             lines.length ? h('div', { class: 'msg-text' }, lines.join('\n')) : null,
             h('span', { class: 'msg-time' }, fmtChatTime(m.created_at),
+              mine ? (() => { const rd = readers(m); return h('span', { class: 'msg-tick' + (rd.all ? ' read' : ''), title: rd.all ? 'Διαβάστηκε' : rd.seen.length ? 'Το διάβασαν ' + rd.seen.length + ' από ' + rd.others.length : 'Στάλθηκε' }, rd.seen.length ? '✓✓' : '✓'); })() : null,
               mine || isAdmin() ? h('button', { class: 'msg-del', title: 'Διαγραφή μηνύματος', 'aria-label': 'Διαγραφή μηνύματος', onclick: async () => {
                 if (!(await confirmBox('Διαγραφή μηνύματος', 'Να σβηστεί το μήνυμα για όλους;', 'Διαγραφή', true))) return;
                 try { await S.store.chatDelete(m.id); CH.msgs = CH.msgs.filter(x => x.id !== m.id); render(); } catch (e) { toast(e.message, true); }
-              } }, '×') : null))));
+              } }, '×') : null)),
+          m === lastMine ? (() => {
+            const rd = readers(m);
+            if (!rd.seen.length) return null;
+            if (CH.room !== 'all') return h('div', { class: 'msg-seen' }, 'Διαβάστηκε ' + fmtChatTime(CH.reads[rd.seen[0]]));
+            return h('div', { class: 'msg-seen' }, rd.all ? 'Το είδαν όλοι' : 'Το είδαν: ' + rd.seen.map(staffName).join(', '));
+          })() : null));
       });
       if (scroll || atBottom) requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
     }
@@ -1667,6 +1686,8 @@
       fillRes();
       drawRooms();
       try { CH.msgs = await S.store.chatList(rm); } catch (e) { CH.msgs = []; toast(e.message, true); }
+      CH.reads = {};
+      try { (await S.store.chatReads(rm)).forEach(x => { CH.reads[x.user_id] = x.last_read_at; }); } catch (e) {}
       if (CH.room !== rm) return;
       render(true);
       CH.unread[rm] = 0; drawChatBadge(); drawRooms();

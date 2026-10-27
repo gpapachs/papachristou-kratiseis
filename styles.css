@@ -747,3 +747,7 @@ button.dt-row:hover { background: var(--surface-2); }
   .chat-back { display: inline-flex; }
   .msg { max-width: 88%; }
 }
+
+.msg-tick { font-size: 11px; letter-spacing: -2px; color: var(--ink-3); font-weight: 700; margin-right: 2px; }
+.msg-tick.read { color: #2f8fe0; }
+.msg-seen { font-size: 11px; color: var(--ink-3); margin: 2px 4px 0; }

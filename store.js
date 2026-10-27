@@ -89,6 +89,7 @@
       async chatSend(room, body, resId) { return chk(await sb.from('chat_messages').insert({ room, body, res_id: resId || null }).select().single()); },
       async chatDelete(id) { chk(await sb.from('chat_messages').delete().eq('id', id)); },
       async chatUnread() { return chk(await sb.rpc('chat_unread')) || []; },
+      async chatReads(room) { return chk(await sb.from('chat_reads').select('user_id,last_read_at').eq('room', room)); },
       async chatMarkRead(room) {
         const { data } = await sb.auth.getSession(); if (!data.session) return;
         chk(await sb.from('chat_reads').upsert({ user_id: data.session.user.id, room, last_read_at: new Date().toISOString() }));
@@ -104,7 +105,7 @@
 
       subscribe(cb) {
         const ch = sb.channel('kratiseis');
-        ['reservations', 'res_areas', 'res_tables', 'res_settings', 'res_closures', 'chat_messages'].forEach(table =>
+        ['reservations', 'res_areas', 'res_tables', 'res_settings', 'res_closures', 'chat_messages', 'chat_reads'].forEach(table =>
           ch.on('postgres_changes', { event: '*', schema: 'public', table }, payload => cb(table, payload)));
         ch.subscribe();
         return () => sb.removeChannel(ch);
@@ -270,6 +271,7 @@
         return Object.values(out);
       },
       async chatMarkRead(room) { (db.chatReads = db.chatReads || {})[room] = new Date().toISOString(); save(); },
+      async chatReads(room) { return (db.chatReads || {})[room] ? [{ user_id: db.meId, last_read_at: db.chatReads[room] }] : []; },
       async pushSubscribe(sub, kinds) { db.push = { endpoint: sub.endpoint, kinds }; save(); },
       async pushUnsubscribe() { delete db.push; save(); },
       async pushMine(endpoint) { return db.push && db.push.endpoint === endpoint ? clone(db.push) : null; },
