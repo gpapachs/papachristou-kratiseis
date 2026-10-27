@@ -1,7 +1,7 @@
 /* Service worker: η εφαρμογή ανοίγει γρήγορα και φορτώνει ακόμα κι αν πέσει στιγμιαία το internet.
    Τα αρχεία της εφαρμογής φέρνονται πάντα πρώτα από το δίκτυο (για να έρχονται οι ενημερώσεις αμέσως)
    και μόνο αν δεν υπάρχει σύνδεση χρησιμοποιείται το αντίγραφο. Τα δεδομένα (Supabase) δεν αποθηκεύονται. */
-const CACHE = 'kratiseis-v2.2.0';
+const CACHE = 'kratiseis-v2.3.0';
 const SHELL = [
   './', 'index.html', 'styles.css', 'theme.js', 'config.js', 'logic.js', 'store.js', 'floor.js', 'app.js',
   'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png', 'icons/badge-96.png', 'icons/mark.svg', 'icons/logo.svg', 'icons/favicon.svg'

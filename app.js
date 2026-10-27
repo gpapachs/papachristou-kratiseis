@@ -1,7 +1,7 @@
 /* Κρατήσεις — Ψητοπωλείο Παπαχρήστου */
 (function () {
   'use strict';
-  const VERSION = '2.2.0';
+  const VERSION = '2.3.0';
   const L = window.Logic;
 
   const DEFAULT_SETTINGS = {
@@ -210,6 +210,8 @@
   async function startApp() {
     try { S.me = await S.store.getMe(); } catch (e) { S.me = null; }
     if (!S.me || !S.me.active) return showNoAccess();
+    // στυλ εμφάνισης του χρήστη (ακολουθεί τον χρήστη σε κάθε συσκευή)
+    try { const pr = await S.store.getMyPrefs(); if (pr.ui_style && pr.ui_style !== Theme.getStyle()) Theme.setStyle(pr.ui_style); } catch (e) {}
     try {
       const [st, tables, areas, closures] = await Promise.all([S.store.loadSettings(), S.store.listTables(), S.store.listAreas(), S.store.listClosures()]);
       S.settings = Object.assign({}, DEFAULT_SETTINGS, st || {});
@@ -316,8 +318,39 @@
       h('div', { class: 'summary', id: 'summary' }),
       h('nav', { class: 'tabs', id: 'tabs' }),
       h('main', { class: 'main', id: 'view' }),
-      h('div', { class: 'version' }, 'v' + VERSION + ' · ' + S.me.display_name + ' (' + ROLE[S.me.role] + ')')
+      h('div', { class: 'version' }, 'v' + VERSION + ' · ' + S.me.display_name + ' (' + ROLE[S.me.role] + ')'),
+      h('nav', { class: 'bottom-nav', id: 'bottom-nav', 'aria-label': 'Κύρια πλοήγηση' })
     );
+    renderBottomNav();
+  }
+
+  /* Μπάρα πλοήγησης στο κάτω μέρος (κινητό, στυλ εκτός από το Κλασικό) */
+  function renderBottomNav() {
+    const nav = $('#bottom-nav'); if (!nav) return;
+    nav.innerHTML = '';
+    const item = (id, label, icon, onclick, extra) => h('button', { class: 'bn-item' + (id && S.view === id ? ' on' : ''), id: extra, onclick }, svg(icon), h('span', null, label));
+    const go = v => () => { S.view = v; renderTabs(); renderView(); window.scrollTo({ top: 0 }); };
+    const more = ['tables', 'days', 'msgs'].includes(S.view);
+    nav.append(
+      item('list', 'Λίστα', '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>', go('list')),
+      item('floor', 'Κάτοψη', '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>', go('floor')),
+      h('button', { class: 'bn-add', 'aria-label': 'Νέα κράτηση', onclick: () => openResForm(null, {}) }, h('span', null, svg(IC.plus))),
+      item(null, 'Μηνύματα', '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>', () => openChat(), 'bn-chat'),
+      h('button', { class: 'bn-item' + (more ? ' on' : ''), onclick: openMoreMenu }, svg('<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>'), h('span', null, 'Περισσότερα')));
+    drawChatBadge();
+  }
+  function openMoreMenu() {
+    const n = pendingMessages(); const cnt = n.conf.length + n.rem.length;
+    const row = (label, icon, fn, badge) => h('button', { class: 'more-row', onclick: () => { close(); fn(); } }, svg(icon), h('span', null, label), badge ? h('span', { class: 'badge' }, badge) : null);
+    const go = v => () => { S.view = v; renderTabs(); renderView(); window.scrollTo({ top: 0 }); };
+    const close = openModal('Περισσότερα', h('div', { class: 'more-list' },
+      row('Χρονοδιάγραμμα', '<path d="M3 12h18M3 6h18M3 18h12"/>', go('tables')),
+      row('Ημέρες', '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>', go('days')),
+      row('Μηνύματα σε πελάτες', IC.msg, go('msgs'), cnt || null),
+      row('Εκτύπωση', IC.print, openPrint),
+      row('Ειδοποιήσεις', IC.bell, openNotifySettings),
+      row('Ρυθμίσεις', IC.gear, openSettings),
+      row('Ο λογαριασμός μου', '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>', openAccount)));
   }
 
   function setDate(d) { S.date = d; S.assignId = null; S.joinSel = []; const di = $('#date-input'); if (di) di.value = d; reload(); }
@@ -376,6 +409,7 @@
       onclick: () => { S.view = id; renderTabs(); renderView(); } }, label, badge ? h('span', { class: 'badge' }, badge) : null);
     tabs.append(tab('list', 'Λίστα'), tab('floor', 'Κάτοψη'), tab('tables', 'Χρονοδιάγραμμα'), tab('days', 'Ημέρες'), tab('msgs', 'Μηνύματα', cnt || null));
     const on = tabs.querySelector('.tab.on'); if (on && tabs.scrollWidth > tabs.clientWidth) tabs.scrollLeft = Math.max(0, on.offsetLeft - 24);
+    renderBottomNav();
   }
 
   function renderView() {
@@ -1139,18 +1173,30 @@
         }));
         const modeSeg = h('div', { class: 'seg' }, [['auto', 'Αυτόματο'], ['light', 'Φωτεινό'], ['dark', 'Σκοτεινό']].map(([k, l]) =>
           h('button', { class: r.mode === k ? 'on' : '', onclick: () => { Theme.setLocal({ mode: k }); draw(); } }, l)));
-        content.append(
-          h('div', { class: 'section-title' }, 'Χρωματικό θέμα'), grid,
-          h('div', { class: 'section-title', style: { marginTop: '6px' } }, 'Φωτεινότητα'), modeSeg,
-          h('p', { class: 'hint', style: { margin: 0 } }, '«Αυτόματο» ακολουθεί τη ρύθμιση της συσκευής (μέρα/νύχτα). Η επιλογή ισχύει για αυτή τη συσκευή.'),
+        const cur = Theme.getStyle();
+        const styles = h('div', { class: 'style-grid' }, Theme.STYLES.map(x => h('button', { class: 'style-card' + (cur === x.id ? ' on' : ''),
+          onclick: async () => {
+            Theme.setStyle(x.id); draw();
+            try { await S.store.setMyPrefs({ ui_style: x.id }); } catch (e) { toast('Δεν αποθηκεύτηκε στον λογαριασμό: ' + e.message, true); }
+          } },
+          h('div', { class: 'style-sw', style: { background: x.sw[0] } },
+            h('i', { style: { background: x.sw[1] } }), h('i', { style: { background: x.sw[2] } }),
+            cur === x.id ? h('span', { class: 'theme-check' }, svg(IC.check)) : null),
+          h('b', null, x.name), h('span', null, x.desc))));
+        content.append(...[
+          h('div', { class: 'section-title' }, 'Στυλ εμφάνισης'), styles,
+          h('p', { class: 'hint', style: { margin: 0 } }, 'Το στυλ είναι προσωπική επιλογή: ισχύει για εσένα, σε όποια συσκευή συνδεθείς. Στα στυλ εκτός από το Κλασικό, στο κινητό οι καρτέλες μπαίνουν σε μπάρα στο κάτω μέρος.'),
+          cur === 'classic' ? [h('div', { class: 'section-title', style: { marginTop: '6px' } }, 'Χρωματικό θέμα'), grid] : null,
+          cur === 'service' ? null : [h('div', { class: 'section-title', style: { marginTop: '6px' } }, 'Φωτεινότητα'), modeSeg,
+            h('p', { class: 'hint', style: { margin: 0 } }, '«Αυτόματο» ακολουθεί τη ρύθμιση της συσκευής (μέρα/νύχτα). Η επιλογή ισχύει για αυτή τη συσκευή.')],
           h('div', { class: 'row', style: { justifyContent: 'flex-end', marginTop: '4px' } },
             h('button', { class: 'btn', style: { flex: '0 0 auto', marginRight: 'auto' }, onclick: installApp }, svg(IC.download), 'Εγκατάσταση ως εφαρμογή'),
             r.local ? h('button', { class: 'btn', style: { flex: '0 0 auto' }, onclick: () => { Theme.clearLocal(); draw(); } }, 'Επαναφορά στην προεπιλογή καταστήματος') : null,
-            !isAdmin() ? null : h('button', { class: 'btn primary', style: { flex: '0 0 auto' }, onclick: async () => {
+            !isAdmin() || cur !== 'classic' ? null : h('button', { class: 'btn primary', style: { flex: '0 0 auto' }, onclick: async () => {
               st.theme = r.theme; st.theme_mode = r.mode;
               try { await S.store.saveSettings(st); S.settings = Object.assign({}, DEFAULT_SETTINGS, st); Theme.setShopDefault(st.theme, st.theme_mode); toast('Ορίστηκε για όλες τις συσκευές'); draw(); }
               catch (e) { toast(e.message, true); }
-            } }, 'Ορισμός για όλες τις συσκευές')));
+            } }, 'Ορισμός για όλες τις συσκευές'))].flat().filter(Boolean));
       }
       if (tab === 'users') renderUsers(content);
       if (tab === 'msgs') {
@@ -1512,12 +1558,14 @@
     drawChatBadge();
   }
   function drawChatBadge() {
-    const b = $('#chat-btn'); if (!b) return;
-    const n = Object.values(CH.unread).reduce((a, x) => a + x, 0);
-    let bd = b.querySelector('.badge');
-    if (!n) { if (bd) bd.remove(); return; }
-    if (!bd) { bd = h('span', { class: 'badge dot' }); b.append(bd); }
-    bd.textContent = n > 99 ? '99+' : n;
+    const n = Object.values(CH.unread || {}).reduce((a, x) => a + x, 0);
+    ['#chat-btn', '#bn-chat'].forEach(sel => {
+      const b = $(sel); if (!b) return;
+      let bd = b.querySelector('.badge');
+      if (!n) { if (bd) bd.remove(); return; }
+      if (!bd) { bd = h('span', { class: 'badge dot' }); b.append(bd); }
+      bd.textContent = n > 99 ? '99+' : n;
+    });
   }
 
   function onChatEvent(p) {

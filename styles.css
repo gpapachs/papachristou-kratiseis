@@ -759,3 +759,187 @@ button.dt-row:hover { background: var(--surface-2); }
 .msg-likes { margin: -6px 8px 0; position: relative; z-index: 1; border: 1px solid var(--line-2); background: var(--surface); border-radius: 999px; padding: 1px 9px; font-size: 12px; font-weight: 700; color: var(--ink-2); box-shadow: var(--shadow-sm); }
 .msg-likes.on { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-soft); color: var(--accent-text); }
 .msg.mine .msg-likes { cursor: default; }
+
+/* =====================================================================
+   Στυλ εμφάνισης ανά χρήστη (data-style στο <html>): taverna · service · clean
+   Το «classic» είναι όλα τα παραπάνω.
+   ===================================================================== */
+.style-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.style-card { display: flex; flex-direction: column; gap: 4px; padding: 10px; border-radius: 16px; border: 1.5px solid var(--line-2); background: var(--surface); text-align: left; transition: .15s; }
+.style-card:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--line-2)); }
+.style-card.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.style-card b { font-size: 14px; }
+.style-card > span { font-size: 12px; color: var(--ink-3); }
+.style-sw { height: 60px; border-radius: 11px; position: relative; display: flex; align-items: flex-end; gap: 6px; padding: 8px; border: 1px solid rgba(0,0,0,.08); margin-bottom: 4px; }
+.style-sw i { width: 26px; height: 26px; border-radius: 8px; display: block; border: 1px solid rgba(0,0,0,.1); }
+
+/* ---------- Κάτω μπάρα (κρυφή στο κλασικό και σε μεγάλες οθόνες) ---------- */
+.bottom-nav { display: none; }
+.more-list { display: flex; flex-direction: column; gap: 4px; }
+.more-row { display: flex; align-items: center; gap: 14px; min-height: 52px; padding: 0 12px; border: 0; background: none; border-radius: 12px; text-align: left; font-weight: 600; font-size: 15.5px; color: var(--ink); }
+.more-row:hover { background: var(--surface-2); }
+.more-row svg { width: 22px; height: 22px; color: var(--ink-2); }
+.more-row span:first-of-type { flex: 1; }
+@media (max-width: 640px) {
+  :root:not([data-style="classic"]) .bottom-nav {
+    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); align-items: start;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+    background: var(--surface); border-top: 1px solid var(--line);
+    padding: 6px 4px max(8px, env(safe-area-inset-bottom));
+  }
+  :root:not([data-style="classic"]) .bn-item {
+    position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; min-height: 48px;
+    border: 0; background: none; color: var(--ink-3); font-size: 11px; font-weight: 600; padding: 4px 0;
+  }
+  :root:not([data-style="classic"]) .bn-item svg { width: 23px; height: 23px; }
+  :root:not([data-style="classic"]) .bn-item.on { color: var(--accent-text); font-weight: 800; }
+  :root:not([data-style="classic"]) .bn-item .badge.dot { top: 0; right: auto; left: 50%; margin-left: 4px; }
+  :root:not([data-style="classic"]) .bn-add { border: 0; background: none; display: flex; justify-content: center; padding: 0; }
+  :root:not([data-style="classic"]) .bn-add span {
+    width: 56px; height: 56px; margin-top: -24px; border-radius: 18px; display: flex; align-items: center; justify-content: center;
+    background: var(--accent); color: var(--accent-ink); border: 4px solid var(--bg); box-shadow: var(--shadow);
+  }
+  :root:not([data-style="classic"]) .bn-add svg { width: 26px; height: 26px; stroke-width: 2.6; }
+  /* ό,τι μπήκε στην κάτω μπάρα φεύγει από πάνω */
+  :root:not([data-style="classic"]) .topbar .btn.primary,
+  :root:not([data-style="classic"]) .topbar .chat-btn,
+  :root:not([data-style="classic"]) .topbar .bell-btn,
+  :root:not([data-style="classic"]) .topbar .btn[title="Ρυθμίσεις"],
+  :root:not([data-style="classic"]) .tabs { display: none; }
+  :root:not([data-style="classic"]) .main { padding-bottom: 120px; }
+  :root:not([data-style="classic"]) .version { margin-top: -110px; }
+  :root:not([data-style="classic"]) #toast { bottom: 96px; }
+  :root:not([data-style="classic"]) .view-floor .main { padding-bottom: 100px; }
+}
+
+/* ---------- Κοινά για τα νέα στυλ ---------- */
+:root:not([data-style="classic"]) body { background: var(--bg); }
+:root:not([data-style="classic"]) .btn.primary { background: var(--accent); box-shadow: none; }
+:root:not([data-style="classic"]) .btn.primary:hover { filter: brightness(1.08); }
+:root:not([data-style="classic"]) .stat::after { display: none; }
+:root:not([data-style="classic"]) .brand-mark { box-shadow: none; }
+
+/* ---------- Α · Ψητοπωλείο ---------- */
+:root[data-style="taverna"] {
+  --bg: #f6f2ea; --surface: #ffffff; --surface-2: #fbf8f2; --glass: rgba(246,242,234,.88);
+  --ink: #2a2626; --ink-2: #5e5753; --ink-3: #857d78; --line: #ece4d8; --line-2: #ddd2c3;
+  --accent: #b5502a; --accent-2: #d9822b; --accent-ink: #ffffff;
+  --accent-soft: #f6e3d8; --accent-text: #9a4220;
+  --brand-a: #b5502a; --brand-b: #d9822b; --chair: #ddd2c3;
+  --mist: #efe8dd; --mist-ink: #857d78;
+  --radius: 16px; --radius-sm: 12px;
+  --shadow-sm: none; --shadow: 0 1px 2px rgba(42,38,38,.06);
+  --shadow-lg: 0 24px 60px -16px rgba(42,38,38,.35);
+  color-scheme: light;
+}
+:root[data-style="taverna"][data-mode="dark"] {
+  --bg: #171413; --surface: #221e1c; --surface-2: #2a2523; --glass: rgba(23,20,19,.88);
+  --ink: #f4eee6; --ink-2: #cfc5ba; --ink-3: #9a9088; --line: #332d2a; --line-2: #433b37;
+  --accent: #e0703f; --accent-2: #f0a25a; --accent-ink: #1a0e08; --accent-soft: #3a2419; --accent-text: #f29a70;
+  --chair: #433b37; --mist: #2a2523; --mist-ink: #9a9088; color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-style="taverna"]:not([data-mode="light"]) {
+    --bg: #171413; --surface: #221e1c; --surface-2: #2a2523; --glass: rgba(23,20,19,.88);
+    --ink: #f4eee6; --ink-2: #cfc5ba; --ink-3: #9a9088; --line: #332d2a; --line-2: #433b37;
+    --accent: #e0703f; --accent-2: #f0a25a; --accent-ink: #1a0e08; --accent-soft: #3a2419; --accent-text: #f29a70;
+    --chair: #433b37; --mist: #2a2523; --mist-ink: #9a9088; color-scheme: dark;
+  }
+}
+:root[data-style="taverna"] .brand > div:last-child,
+:root[data-style="taverna"] .datebar h1,
+:root[data-style="taverna"] .modal-head h2,
+:root[data-style="taverna"] .login h1,
+:root[data-style="taverna"] .card .time,
+:root[data-style="taverna"] .stat b,
+:root[data-style="taverna"] .fp-sum-row b { font-family: "Roboto Slab", Georgia, serif; }
+:root[data-style="taverna"] .brand small { font-family: "Commissioner", sans-serif; text-transform: uppercase; letter-spacing: 1.2px; font-size: 10.5px; }
+:root[data-style="taverna"] .summary { gap: 0; }
+:root[data-style="taverna"] .summary .stat { background: #2a2626; color: #f6f2ea; border-radius: 0; padding: 14px 16px; }
+:root[data-style="taverna"] .summary .stat:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+:root[data-style="taverna"] .summary .stat:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+:root[data-style="taverna"] .summary .stat + .stat { border-left: 1px solid #4a4443; }
+:root[data-style="taverna"] .summary .stat b { color: #f6f2ea; }
+:root[data-style="taverna"] .summary .stat span { color: #cfc6ba; font-weight: 600; }
+:root[data-style="taverna"] .summary .stat:nth-child(4) b { color: #f0a27f; }
+@media (max-width: 640px) {
+  :root[data-style="taverna"] .summary .stat { border-radius: 0 !important; border-left: 0 !important; }
+  :root[data-style="taverna"] .summary { gap: 1px; background: #4a4443; border-radius: var(--radius); overflow: hidden; margin-left: 16px; margin-right: 16px; padding: 0; }
+}
+:root[data-style="taverna"] .card { border: 1px solid var(--line); box-shadow: none; }
+:root[data-style="taverna"] .card .time { background: transparent; color: var(--ink); border-right: 1px dashed var(--line-2); border-radius: 0; }
+:root[data-style="taverna"] .card.st-seated .time { color: var(--ok); }
+:root[data-style="taverna"] .tab.on { background: var(--ink); color: var(--bg); box-shadow: none; }
+:root[data-style="taverna"] .chip.on { background: var(--ink); color: var(--bg); }
+
+/* ---------- Β · Σκοτεινό σέρβις (πάντα σκούρο) ---------- */
+:root[data-style="service"] {
+  --bg: #0f1013; --surface: #181a1f; --surface-2: #1e2127; --glass: rgba(15,16,19,.9);
+  --ink: #f2f2f3; --ink-2: #c3c5cc; --ink-3: #8f929b; --line: #262930; --line-2: #33363e;
+  --accent: #ff7a45; --accent-2: #ffb547; --accent-ink: #1a0e08; --accent-soft: #3a2117; --accent-text: #ff9a6e;
+  --brand-a: #ff7a45; --brand-b: #ffb547; --chair: #33363e;
+  --lav: #262347; --lav-ink: #c5bcff; --peach: #3a2a1f; --peach-ink: #ffc59a;
+  --mint: #12301f; --mint-ink: #8fe3b9; --sky: #172742; --sky-ink: #9cc8ff;
+  --rose: #3d1c22; --rose-ink: #ff9aa8; --butter: #352e14; --butter-ink: #f3d77a; --mist: #24262c; --mist-ink: #9a9da6;
+  --ok: var(--mint-ink); --warn: var(--peach-ink); --bad: var(--rose-ink); --info: var(--sky-ink);
+  --fill-ok: #34c77b; --fill-mid: #ffb547; --fill-full: #ff5d5d;
+  --t-free: #143b26; --t-free-ink: #8ff0b6; --t-free-line: #34c77b;
+  --t-busy: #4a1d22; --t-busy-ink: #ffb3b3; --t-busy-line: #ff5d5d;
+  --t-seat: #6e1a20; --t-seat-ink: #ffd0d0; --t-seat-line: #ff7070;
+  --radius: 16px; --radius-sm: 12px;
+  --shadow-sm: none; --shadow: none; --shadow-lg: 0 24px 64px -12px rgba(0,0,0,.7);
+  color-scheme: dark;
+}
+:root[data-style="service"] .stat { background: var(--surface); }
+:root[data-style="service"] .stat b { font-weight: 800; font-size: 32px; }
+:root[data-style="service"] .stat:nth-child(1) b { color: var(--ink); }
+:root[data-style="service"] .stat:nth-child(2) b { color: #ffb547; }
+:root[data-style="service"] .stat:nth-child(3) b { color: #34c77b; }
+:root[data-style="service"] .stat:nth-child(4) b { color: #ff9a6e; }
+:root[data-style="service"] .stat span { color: var(--ink-3); }
+:root[data-style="service"] .card { background: var(--surface); }
+:root[data-style="service"] .card .time { background: transparent; color: var(--ink); font-size: 21px; font-weight: 800; }
+:root[data-style="service"] .card.st-seated { background: #13241a; }
+:root[data-style="service"] .card.st-seated .time { color: #8fe3b9; }
+:root[data-style="service"] .tab.on { background: var(--accent); color: var(--accent-ink); }
+:root[data-style="service"] .btn { border-color: var(--line-2); background: transparent; }
+:root[data-style="service"] .btn.primary { background: var(--accent); color: var(--accent-ink); font-weight: 800; }
+:root[data-style="service"] .brand-mark { background: #fff; }
+:root[data-style="service"] .load, :root[data-style="service"] .fp-stage, :root[data-style="service"] .fp-card, :root[data-style="service"] .tl-wrap { background: var(--surface); }
+
+/* ---------- Γ · Καθαρό ---------- */
+:root[data-style="clean"] {
+  --bg: #f4f4f6; --surface: #ffffff; --surface-2: #f4f4f6; --glass: rgba(255,255,255,.9);
+  --ink: #111114; --ink-2: #45454d; --ink-3: #6b6b73; --line: #ececef; --line-2: #e0e0e5;
+  --accent: #111114; --accent-2: #1f7a52; --accent-ink: #ffffff; --accent-soft: #ececef; --accent-text: #111114;
+  --brand-a: #111114; --brand-b: #45454d; --chair: #e0e0e5; --mist: #ececef; --mist-ink: #6b6b73;
+  --radius: 16px; --radius-sm: 12px;
+  --shadow-sm: none; --shadow: none; --shadow-lg: 0 24px 64px -16px rgba(0,0,0,.25);
+  color-scheme: light;
+}
+:root[data-style="clean"][data-mode="dark"] {
+  --bg: #000000; --surface: #1c1c1e; --surface-2: #2c2c2e; --glass: rgba(0,0,0,.85);
+  --ink: #f5f5f7; --ink-2: #c7c7cc; --ink-3: #98989f; --line: #2c2c2e; --line-2: #3a3a3c;
+  --accent: #f5f5f7; --accent-ink: #000000; --accent-soft: #2c2c2e; --accent-text: #f5f5f7; --chair: #3a3a3c; color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-style="clean"]:not([data-mode="light"]) {
+    --bg: #000000; --surface: #1c1c1e; --surface-2: #2c2c2e; --glass: rgba(0,0,0,.85);
+    --ink: #f5f5f7; --ink-2: #c7c7cc; --ink-3: #98989f; --line: #2c2c2e; --line-2: #3a3a3c;
+    --accent: #f5f5f7; --accent-ink: #000000; --accent-soft: #2c2c2e; --accent-text: #f5f5f7; --chair: #3a3a3c; color-scheme: dark;
+  }
+}
+:root[data-style="clean"] .topbar { background: var(--surface); }
+:root[data-style="clean"] .datebar h1 { font-size: 30px; font-weight: 800; letter-spacing: -.6px; }
+:root[data-style="clean"] .summary { display: flex; gap: 18px; flex-wrap: wrap; }
+:root[data-style="clean"] .stat, :root[data-style="clean"] .stat:nth-child(n) { background: none; padding: 0; display: flex; align-items: baseline; gap: 6px; }
+:root[data-style="clean"] .stat b { font-size: 20px; display: inline; }
+:root[data-style="clean"] .stat span { color: var(--ink-3); font-weight: 500; font-size: 13px; }
+:root[data-style="clean"] .card { box-shadow: none; border-radius: 0; margin-bottom: 0; border-bottom: 1px solid var(--line); }
+:root[data-style="clean"] .time-group { background: var(--surface); border-radius: var(--radius); overflow: hidden; margin-bottom: 12px; }
+:root[data-style="clean"] .time-group .card:last-child { border-bottom: 0; }
+:root[data-style="clean"] .card .time { background: var(--surface-2); color: var(--ink); border-radius: 12px; }
+:root[data-style="clean"] .card.st-seated .time { background: #e3f4ea; color: #1f7a52; }
+:root[data-style="clean"] .tab.on { background: var(--ink); color: var(--bg); box-shadow: none; }
+:root[data-style="clean"] .chip.on { background: var(--ink); color: var(--bg); }
+:root[data-style="clean"] .load, :root[data-style="clean"] .fp-stage, :root[data-style="clean"] .fp-card { box-shadow: none; }

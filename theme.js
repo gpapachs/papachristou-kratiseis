@@ -14,6 +14,15 @@
     { id: 'grill',    name: 'Κάρβουνο',     light: ['#d9480f', '#f59f00'], dark: ['#ff8a4c', '#ffc04d'] }
   ];
   const KEY = 'kratiseis-theme';
+  const STYLE_KEY = 'kratiseis-style';
+  // Στυλ εμφάνισης (ανά χρήστη): classic = το παστέλ με τα χρωματικά θέματα
+  const STYLES = [
+    { id: 'classic', name: 'Κλασικό', desc: 'Παστέλ, με επιλογή χρώματος', sw: ['#f6f4fb', '#7b6ae8', '#f29bbd'] },
+    { id: 'taverna', name: 'Ψητοπωλείο', desc: 'Τα χρώματα του λογότυπου', sw: ['#f6f2ea', '#2a2626', '#b5502a'] },
+    { id: 'service', name: 'Σκοτεινό σέρβις', desc: 'Σκούρο, για το βράδυ', sw: ['#0f1013', '#181a1f', '#ff7a45'] },
+    { id: 'clean', name: 'Καθαρό', desc: 'Λευκό, minimal', sw: ['#f4f4f6', '#ffffff', '#111114'] }
+  ];
+  function getStyle() { try { const v = localStorage.getItem(STYLE_KEY); return STYLES.some(x => x.id === v) ? v : 'classic'; } catch (e) { return 'classic'; } }
   let shop = { theme: 'lavender', mode: 'auto' };
   const mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
 
@@ -30,10 +39,18 @@
     const r = resolved();
     const th = THEMES.find(t => t.id === r.theme) || THEMES[0];
     const root = document.documentElement;
-    if (r.mode === 'auto') root.removeAttribute('data-mode'); else root.setAttribute('data-mode', r.mode);
-    const v = isDark(r.mode) ? th.dark : th.light;
-    root.style.setProperty('--accent', v[0]);
-    root.style.setProperty('--accent-2', v[1]);
+    const style = getStyle();
+    root.setAttribute('data-style', style);
+    const mode = style === 'service' ? 'dark' : r.mode;     // το «Σκοτεινό σέρβις» είναι πάντα σκούρο
+    if (mode === 'auto') root.removeAttribute('data-mode'); else root.setAttribute('data-mode', mode);
+    if (style === 'classic') {
+      const v = isDark(mode) ? th.dark : th.light;
+      root.style.setProperty('--accent', v[0]);
+      root.style.setProperty('--accent-2', v[1]);
+    } else {                                                // τα άλλα στυλ έχουν δικά τους χρώματα (styles.css)
+      root.style.removeProperty('--accent');
+      root.style.removeProperty('--accent-2');
+    }
     root.setAttribute('data-theme', th.id);
     const m = document.querySelector('meta[name=theme-color]');
     if (m) requestAnimationFrame(() => { m.content = getComputedStyle(root).getPropertyValue('--bg').trim() || m.content; });
@@ -41,7 +58,8 @@
   if (mq) (mq.addEventListener ? mq.addEventListener('change', apply) : mq.addListener(apply));
 
   window.Theme = {
-    THEMES, apply, resolved, isDark,
+    THEMES, STYLES, apply, resolved, isDark, getStyle,
+    setStyle(id) { try { localStorage.setItem(STYLE_KEY, id); } catch (e) {} apply(); },
     setShopDefault(theme, mode) { shop = { theme: theme || 'lavender', mode: mode || 'auto' }; apply(); },
     setLocal(patch) { saveLocal(Object.assign(loadLocal(), patch)); apply(); },
     clearLocal() { try { localStorage.removeItem(KEY); } catch (e) {} apply(); }

@@ -19,6 +19,8 @@
         return chk(await sb.from('staff').select('*').eq('user_id', data.session.user.id).maybeSingle());
       },
       async changeMyPassword(password) { chk(await sb.auth.updateUser({ password })); },
+      async getMyPrefs() { const { data } = await sb.auth.getUser(); return (data && data.user && data.user.user_metadata) || {}; },
+      async setMyPrefs(patch) { chk(await sb.auth.updateUser({ data: patch })); },
       async listStaff() { return chk(await sb.from('staff').select('*').order('display_name')); },
       async createStaff(u) { return chk(await sb.rpc('admin_create_user', { p_username: u.username, p_password: u.password, p_display: u.display_name, p_role: u.role })); },
       async updateStaff(u) { chk(await sb.rpc('admin_update_user', { p_user: u.user_id, p_username: u.username, p_display: u.display_name, p_role: u.role, p_active: u.active })); },
@@ -202,6 +204,8 @@
       async signIn() {}, async signOut() {},
       async getMe() { initStaff(); return clone(db.staff.find(u => u.user_id === db.meId) || db.staff[0]); },
       setDemoUser(id) { initStaff(); db.meId = id; save(); },
+      async getMyPrefs() { return {}; },
+      async setMyPrefs() {},
       async changeMyPassword(pw) { if (String(pw).length < 6) throw new Error('Ο κωδικός θέλει τουλάχιστον 6 χαρακτήρες'); },
       async listStaff() { initStaff(); return clone(db.staff).sort((a, b) => a.display_name.localeCompare(b.display_name, 'el')); },
       async createStaff(u) {
