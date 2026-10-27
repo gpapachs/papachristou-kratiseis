@@ -1,7 +1,7 @@
 /* Κρατήσεις — Ψητοπωλείο Παπαχρήστου */
 (function () {
   'use strict';
-  const VERSION = '1.8.0';
+  const VERSION = '1.8.1';
   const L = window.Logic;
 
   const DEFAULT_SETTINGS = {
@@ -166,6 +166,7 @@
   function showSetup(cdnFail) {
     const app = $('#app'); app.innerHTML = '';
     app.appendChild(h('div', { class: 'center' }, h('div', { class: 'login' },
+      h('img', { class: 'login-logo', src: 'icons/logo.svg', alt: '' }),
       h('h1', null, 'Κρατήσεις'),
       cdnFail
         ? h('p', null, 'Δεν φόρτωσε η βιβλιοθήκη Supabase. Έλεγξε τη σύνδεση στο internet και ανανέωσε τη σελίδα.')
@@ -187,8 +188,8 @@
         catch (ex) { msg.textContent = 'Λάθος όνομα χρήστη ή κωδικός.'; msg.classList.remove('hidden'); btn.disabled = false; }
       }
     },
+      h('img', { class: 'login-logo', src: 'icons/logo.svg', alt: S.settings.shop_name }),
       h('h1', null, 'Κρατήσεις'),
-      h('p', null, S.settings.shop_name),
       h('label', { class: 'field' }, 'Όνομα χρήστη', email),
       h('label', { class: 'field' }, 'Κωδικός', pass),
       msg, btn)));
@@ -273,7 +274,7 @@
     app.append(
       h('header', { class: 'topbar' }, h('div', { class: 'topbar-inner' },
         h('div', { class: 'brand' },
-          h('div', { class: 'brand-mark' }, svg('<path d="M7 10h10M7 14h10M7 18h6" stroke="#fff"/>')),
+          h('div', { class: 'brand-mark' }, h('img', { src: 'icons/mark.svg', alt: '' })),
           h('div', null, 'Κρατήσεις', h('small', null, S.settings.shop_name))),
         S.store.demo ? h('span', { class: 'demo-pill' }, 'Δοκιμή') : null,
         h('div', { class: 'spacer' }),
@@ -1446,7 +1447,7 @@
         acts.append(
           h('button', { class: 'btn', style: { flex: '0 0 auto', marginRight: 'auto' }, onclick: async () => {
             const reg = await swReady();
-            if (reg) reg.showNotification('Δοκιμή · Σήμερα 21:00', { body: 'Παπαδόπουλος · 4 άτομα\nΤραπέζι 5 · 6971234567', icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', vibrate: [200, 100, 200], tag: 'test' });
+            if (reg) reg.showNotification('Δοκιμή · Σήμερα 21:00', { body: 'Παπαδόπουλος · 4 άτομα\nΤραπέζι 5 · 6971234567', icon: 'icons/icon-192.png', badge: 'icons/badge-96.png', vibrate: [200, 100, 200], tag: 'test' });
           } }, 'Δοκιμή'),
           h('button', { class: 'btn danger', style: { flex: '0 0 auto' }, onclick: async e => {
             e.target.disabled = true; await disablePush(); toast('Οι ειδοποιήσεις απενεργοποιήθηκαν'); refreshBell(); draw();

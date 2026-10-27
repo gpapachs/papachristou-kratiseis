@@ -164,10 +164,11 @@ input[type=checkbox] { accent-color: var(--accent); width: 18px; height: 18px; }
 .topbar-inner { max-width: 1280px; margin: 0 auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -.1px; font-size: 16px; }
 .brand-mark {
-  width: 36px; height: 36px; border-radius: 12px; display: grid; place-items: center;
-  background: linear-gradient(135deg, var(--brand-a), var(--brand-b));
-  box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--accent) 60%, transparent);
+  width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; flex: 0 0 36px;
+  background: #fff; border: 1px solid var(--line-2);
+  box-shadow: 0 6px 16px -8px rgba(40,30,30,.35);
 }
+.brand-mark img { height: 26px; width: auto; display: block; }
 .brand small { display: block; font-weight: 500; color: var(--ink-3); font-size: 12px; letter-spacing: 0; }
 .topbar .spacer { flex: 1; }
 
@@ -410,10 +411,8 @@ input[type=checkbox] { accent-color: var(--accent); width: 18px; height: 18px; }
 /* ---------- Σύνδεση / ρύθμιση ---------- */
 .center { min-height: 100vh; display: grid; place-items: center; padding: 20px; }
 .login { width: 100%; max-width: 400px; background: var(--surface); border-radius: 28px; box-shadow: var(--shadow-lg); padding: 32px 28px; display: flex; flex-direction: column; gap: 16px; }
-.login::before {
-  content: ""; width: 52px; height: 52px; border-radius: 16px; display: block;
-  background: linear-gradient(135deg, var(--brand-a), var(--brand-b)); box-shadow: 0 10px 24px -10px color-mix(in srgb, var(--accent) 70%, transparent);
-}
+.login-logo { display: block; width: 190px; max-width: 70%; height: auto; margin: 0 auto 4px; padding: 14px 18px; background: #fff; border-radius: 20px; box-sizing: content-box; }
+.login h1 { text-align: center; }
 .login h1 { margin: 0; font-size: 26px; letter-spacing: -.5px; }
 .login p { margin: 0; color: var(--ink-2); font-size: 14px; }
 
