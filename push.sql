@@ -134,3 +134,20 @@ create trigger res_push after insert or update of status on public.reservations 
 --   • realtime στο chat_messages, push τύπου 'chat' (trigger chat_push → notify-reservation)
 --   • pg_cron 'kratiseis-chat-cleanup': σβήνει μηνύματα πάνω από 90 μέρες
 -- =====================================================================
+
+-- =====================================================================
+-- v2.3.2 — ειδοποιήσεις σε ΟΛΟΥΣ: ο χρήστης που έκανε την αλλαγή ειδοποιείται κι αυτός στις άλλες συσκευές του.
+-- (Η συσκευή από την οποία έγινε η αλλαγή δεν δείχνει αναδυόμενη κάρτα· αυτό γίνεται στην εφαρμογή.)
+-- =====================================================================
+create or replace function public.push_targets(p_kind text, p_exclude uuid)
+returns table(endpoint text, p256dh text, auth text) language sql security definer set search_path = '' as $$
+  select s.endpoint, s.p256dh, s.auth from public.push_subs s
+  join public.staff st on st.user_id = s.user_id and st.active
+  where p_kind = any(s.kinds);
+$$;
+create or replace function public.push_targets_users(p_kind text, p_users uuid[], p_exclude uuid)
+returns table(endpoint text, p256dh text, auth text) language sql security definer set search_path = '' as $$
+  select s.endpoint, s.p256dh, s.auth from public.push_subs s
+  join public.staff st on st.user_id = s.user_id and st.active
+  where p_kind = any(s.kinds) and (p_users is null or s.user_id = any(p_users));
+$$;

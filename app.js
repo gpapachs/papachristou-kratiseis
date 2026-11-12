@@ -1,7 +1,7 @@
 /* Κρατήσεις — Ψητοπωλείο Παπαχρήστου */
 (function () {
   'use strict';
-  const VERSION = '2.3.1';
+  const VERSION = '2.3.2';
   const L = window.Logic;
 
   const DEFAULT_SETTINGS = {
@@ -158,6 +158,13 @@
     } else {
       return showSetup(!!(cfg.SUPABASE_URL && !window.supabase));
     }
+    // κρατήσεις που άλλαξαν από ΑΥΤΗ τη συσκευή: δεν της δείχνουμε αναδυόμενη ειδοποίηση για κάτι που μόλις έκανε
+    S.mine = new Map();
+    const markMine = id => { if (id) S.mine.set(Number(id), Date.now()); };
+    const wrap = name => { const fn = S.store[name]; if (!fn) return;
+      S.store[name] = async function (a, b) { if (a && typeof a === 'object' ? a.id : a) markMine(a && typeof a === 'object' ? a.id : a);
+        const r = await fn.call(this, a, b); if (r && r.id) markMine(r.id); return r; }; };
+    ['saveReservation', 'patchReservation'].forEach(wrap);
     try { S.user = await S.store.getUser(); } catch (e) { S.user = null; }
     if (!S.user) return showLogin();
     startApp();
@@ -229,7 +236,11 @@
     if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => {
       if (!e.data) return;
       if (e.data.type === 'open') openFromUrl(e.data.url);
-      if (e.data.type === 'push' && (e.data.data || {}).kind !== 'chat') showPushAlert(e.data.data || {});   // τα μηνύματα τα δείχνει η ζωντανή σύνδεση
+      if (e.data.type === 'push') {
+        const d = e.data.data || {};
+        const m = /[?&]res=(\d+)/.exec(d.url || '');
+        if (d.kind !== 'chat' && !(m && changedHere(m[1]))) showPushAlert(d);   // όχι για αλλαγή που μόλις έγινε εδώ
+      }   // τα μηνύματα τα δείχνει η ζωντανή σύνδεση
     });
     refreshBell();
     loadChatStaff().then(refreshChatUnread);
@@ -1864,7 +1875,7 @@
           chk('change', 'Αλλαγές κρατήσεων (μέρα, ώρα, άτομα, τραπέζι)'),
           chk('soon', '30 λεπτά πριν έρθει ο πελάτης'),
           chk('chat', 'Μηνύματα από συναδέλφους')),
-        h('p', { class: 'hint', style: { margin: 0 } }, 'Η ειδοποίηση έχει όνομα, άτομα, μέρα/ώρα, τραπέζι, τηλέφωνο και σημειώσεις — στις αλλαγές και τι άλλαξε (π.χ. Ώρα 20:00 → 21:00). Δεν ειδοποιείσαι για ό,τι κάνεις εσύ. Όταν η εφαρμογή είναι ανοιχτή, εμφανίζεται μήνυμα πάνω στην οθόνη με ήχο.'));
+        h('p', { class: 'hint', style: { margin: 0 } }, 'Η ειδοποίηση έχει όνομα, άτομα, μέρα/ώρα, τραπέζι, τηλέφωνο και σημειώσεις — στις αλλαγές και τι άλλαξε (π.χ. Ώρα 20:00 → 21:00). Ειδοποιούνται όλες οι συσκευές, και του χρήστη που έκανε την αλλαγή — εκτός από τη συσκευή από την οποία έγινε. Όταν η εφαρμογή είναι ανοιχτή, εμφανίζεται μήνυμα πάνω στην οθόνη με ήχο.'));
       const acts = h('div', { class: 'row', style: { justifyContent: 'flex-end' } });
       if (st.supported && st.on) {
         acts.append(
@@ -1893,18 +1904,19 @@
 
   /* Μήνυμα πάνω στην οθόνη όταν άλλος χρήστης περνάει / ακυρώνει κράτηση (η εφαρμογή είναι ανοιχτή) */
   const alerted = new Set();
+  // άλλαξε από αυτή τη συσκευή μέσα στο τελευταίο μισό λεπτό;
+  function changedHere(id) { const t = S.mine && S.mine.get(Number(id)); return !!t && Date.now() - t < 30000; }
   function checkAlert(p) {
     if (S.store.demo || !S.me || S.pushOn) return;   // με ενεργές ειδοποιήσεις το μήνυμα έρχεται από το push
-    
     const r = p.new || {};
-    if (!r.id) return;
+    if (!r.id || changedHere(r.id)) return;
     let kind = null;
-    if (p.eventType === 'INSERT' && r.status !== 'cancelled' && r.created_by_uid && r.created_by_uid !== S.me.user_id) kind = 'new';
-    if (p.eventType === 'UPDATE' && r.status === 'cancelled' && r.updated_by_uid && r.updated_by_uid !== S.me.user_id
-      && Date.now() - new Date(r.updated_at).getTime() < 60000) kind = 'cancel';
+    if (p.eventType === 'INSERT' && r.status !== 'cancelled') kind = 'new';
+    if (p.eventType === 'UPDATE' && r.status === 'cancelled' && Date.now() - new Date(r.updated_at).getTime() < 60000) kind = 'cancel';
     if (!kind || !localKinds().includes(kind) || alerted.has(kind + r.id)) return;
     alerted.add(kind + r.id);
-    showResAlert(r, kind);
+    // μικρή αναμονή: μια νέα κράτηση από αυτή τη συσκευή μπορεί να φτάσει εδώ πριν επιστρέψει η αποθήκευση
+    setTimeout(() => { if (!changedHere(r.id)) showResAlert(r, kind); }, 1500);
   }
   function beep() {
     try {
