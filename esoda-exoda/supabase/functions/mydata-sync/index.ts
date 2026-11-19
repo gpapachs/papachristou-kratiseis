@@ -92,7 +92,7 @@ async function resolveAfm(vat: string): Promise<string> {
   } catch { return ""; }
 }
 
-async function syncSide(side: "income" | "expense", maxPages = 60) {
+async function syncSide(side: "income" | "expense", maxPages = 15) {
   const endpoint = side === "expense" ? "RequestDocs" : "RequestTransmittedDocs";
   const table = side === "expense" ? "fin_expense_docs" : "fin_income_docs";
 
@@ -140,6 +140,8 @@ async function syncSide(side: "income" | "expense", maxPages = 60) {
       }
       if (maxMark <= cur) { done = true; break; }
       cur = maxMark;
+      // checkpoint after every page so a timeout still saves progress (resumable)
+      await supabase.from("fin_sync_state").update({ last_mark: Number(cur), last_run: new Date().toISOString() }).eq("side", side);
     }
   } catch (e) {
     lastError = String(e?.message ?? e);
@@ -169,15 +171,23 @@ function findInvoices(doc: any): any[] {
   return out;
 }
 
+const cors = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+};
+
 Deno.serve(async (req) => {
-  // simple guard: require the function secret (Supabase sends the anon/service JWT; cron uses service key)
-  if (!USER_ID || !KEY) {
-    return new Response(JSON.stringify({ error: "myDATA credentials not configured" }), { status: 500, headers: { "content-type": "application/json" } });
-  }
+  if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body, null, 2), { status, headers: { ...cors, "content-type": "application/json" } });
+
+  if (!USER_ID || !KEY) return json({ error: "myDATA credentials not configured" }, 500);
+
   const url = new URL(req.url);
   const only = url.searchParams.get("side"); // optional: "income" | "expense"
   const results: any[] = [];
   if (only !== "expense") results.push(await syncSide("income"));
   if (only !== "income")  results.push(await syncSide("expense"));
-  return new Response(JSON.stringify({ ok: true, results }, null, 2), { headers: { "content-type": "application/json" } });
+  return json({ ok: true, results });
 });

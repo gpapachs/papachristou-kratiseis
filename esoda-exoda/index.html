@@ -140,15 +140,26 @@ async function load(){
 document.getElementById('apply').onclick = () => DEMO ? (genDemo(), refresh()) : load();
 document.getElementById('sync').onclick = async () => {
   if (DEMO){ setStatus('(demo) ο συγχρονισμός δεν τρέχει σε demo'); return; }
-  setStatus('Συγχρονισμός με myDATA…'); document.getElementById('sync').disabled=true;
+  const btn=document.getElementById('sync'); btn.disabled=true;
+  let tInc=0,tExp=0,i=0;
+  setStatus('Συγχρονισμός με myDATA…');
   try{
-    const { data, error } = await sb.functions.invoke('mydata-sync');
-    if (error) throw error;
-    const r = (data&&data.results)||[];
-    setStatus('Συγχρονίστηκε: '+r.map(x=>`${x.side}+${x.added}`).join(', '));
+    while(i<80){
+      i++;
+      const { data, error } = await sb.functions.invoke('mydata-sync');
+      if (error) throw error;
+      const r=(data&&data.results)||[];
+      const inc=r.find(x=>x.side==='income')||{added:0};
+      const exp=r.find(x=>x.side==='expense')||{added:0};
+      tInc+=inc.added||0; tExp+=exp.added||0;
+      const errMsg=inc.error||exp.error||'';
+      if(errMsg){ setStatus('Σφάλμα myDATA: '+errMsg+' (έσοδα +'+tInc+', έξοδα +'+tExp+')'); break; }
+      setStatus('Συγχρονισμός… έσοδα +'+tInc+', έξοδα +'+tExp);
+      if((inc.added||0)===0 && (exp.added||0)===0){ setStatus('Ολοκληρώθηκε ✓ έσοδα +'+tInc+', έξοδα +'+tExp); break; }
+    }
     load();
   }catch(e){ setStatus('Σφάλμα sync: '+(e.message||e)); }
-  document.getElementById('sync').disabled=false;
+  btn.disabled=false;
 };
 document.getElementById('tabInc').onclick = () => { tab='inc'; setTabs(); renderTable(); };
 document.getElementById('tabExp').onclick = () => { tab='exp'; setTabs(); renderTable(); };
