@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ΕΣΟΔΑ–ΕΞΟΔΑ · myDATA</title>
+<style>
+:root{--bg:#0b0f17;--surface:#141a26;--surface2:#1b2332;--line:#263142;--ink:#e8edf4;--muted:#94a3b8;--green:#22c55e;--red:#ef4444;--blue:#3b82f6;--amber:#f59e0b}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.5 "Segoe UI",system-ui,Roboto,Arial,sans-serif}
+header{display:flex;align-items:center;gap:14px;padding:12px 20px;background:rgba(11,15,23,.92);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10}
+header h1{font-size:17px;font-weight:700;letter-spacing:.3px}
+header .sp{flex:1}
+button{font:inherit;border:1px solid var(--line);background:var(--surface2);color:var(--ink);padding:8px 14px;border-radius:9px;cursor:pointer}
+button.primary{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600}
+button:disabled{opacity:.5;cursor:default}
+input{font:inherit;background:var(--surface);border:1px solid var(--line);color:var(--ink);padding:8px 10px;border-radius:9px}
+.wrap{max-width:1100px;margin:0 auto;padding:18px 20px}
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px}
+.controls label{color:var(--muted);font-size:13px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:18px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px}
+.card .lbl{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.6px}
+.card .big{font-size:26px;font-weight:800;margin-top:6px}
+.card .sub{color:var(--muted);font-size:13px;margin-top:3px}
+.card.green{border-left:5px solid var(--green)} .card.red{border-left:5px solid var(--red)}
+.card.blue{border-left:5px solid var(--blue)} .card.amber{border-left:5px solid var(--amber)}
+.pos{color:var(--green)} .neg{color:var(--red)}
+.chartbox{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:18px}
+.tabs{display:flex;gap:8px;margin-bottom:10px}
+.tabs button.on{background:var(--blue);border-color:var(--blue);color:#fff}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.4px}
+td.r,th.r{text-align:right}
+.tablebox{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:auto;max-height:52vh}
+.muted{color:var(--muted)}
+.banner{background:#422006;color:#fde68a;border:1px solid #713f12;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:14px}
+/* login */
+#login{max-width:360px;margin:12vh auto;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:26px}
+#login h2{font-size:18px;margin-bottom:4px}
+#login p{color:var(--muted);font-size:13px;margin-bottom:16px}
+#login input{width:100%;margin-bottom:10px}
+#login button{width:100%}
+.err{color:#fca5a5;font-size:13px;margin-top:8px;min-height:18px}
+</style>
+</head>
+<body>
+
+<div id="login" style="display:none">
+  <h2>ΕΣΟΔΑ–ΕΞΟΔΑ</h2>
+  <p>Σύνδεση για πρόσβαση στα οικονομικά στοιχεία (myDATA).</p>
+  <input id="email" type="email" placeholder="email" autocomplete="username">
+  <input id="pass" type="password" placeholder="κωδικός" autocomplete="current-password">
+  <button class="primary" id="loginBtn">Σύνδεση</button>
+  <div class="err" id="loginErr"></div>
+</div>
+
+<div id="app" style="display:none">
+  <header>
+    <h1>ΕΣΟΔΑ–ΕΞΟΔΑ <span class="muted" style="font-weight:400">· myDATA</span></h1>
+    <div class="sp"></div>
+    <span id="who" class="muted" style="font-size:13px"></span>
+    <button id="logoutBtn">Έξοδος</button>
+  </header>
+  <div class="wrap">
+    <div id="demoBanner" class="banner" style="display:none">Λειτουργία επίδειξης (demo) — δεν έχει ρυθμιστεί <code>config.js</code>. Τα νούμερα είναι εικονικά.</div>
+    <div class="controls">
+      <label>Από</label><input type="date" id="from">
+      <label>Έως</label><input type="date" id="to">
+      <button id="apply" class="primary">Αναζήτηση</button>
+      <button id="sync">Συγχρονισμός τώρα</button>
+      <span id="status" class="muted" style="font-size:13px"></span>
+    </div>
+
+    <div class="cards">
+      <div class="card green"><div class="lbl">Έσοδα (καθαρά)</div><div class="big" id="cIncNet">—</div><div class="sub">ΦΠΑ εκροών: <span id="cIncVat">—</span></div></div>
+      <div class="card red"><div class="lbl">Έξοδα (καθαρά)</div><div class="big" id="cExpNet">—</div><div class="sub">ΦΠΑ εισροών: <span id="cExpVat">—</span></div></div>
+      <div class="card blue"><div class="lbl">Αποτέλεσμα (καθαρά)</div><div class="big" id="cProfit">—</div><div class="sub">Έσοδα − Έξοδα</div></div>
+      <div class="card amber"><div class="lbl">Χρεωστικό ΦΠΑ</div><div class="big" id="cVat">—</div><div class="sub">ΦΠΑ εκροών − ΦΠΑ εισροών</div></div>
+    </div>
+
+    <div class="chartbox"><canvas id="chart" height="110"></canvas></div>
+
+    <div class="tabs">
+      <button id="tabInc" class="on">Έσοδα (<span id="nInc">0</span>)</button>
+      <button id="tabExp">Έξοδα (<span id="nExp">0</span>)</button>
+    </div>
+    <div class="tablebox">
+      <table>
+        <thead id="thead"></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="config.js" onerror="window.__noconfig=true"></script>
+<script>
+const eur = (n) => (Number(n)||0).toLocaleString('el-GR',{style:'currency',currency:'EUR'});
+const cfg = window.KDS_CONFIG;
+const DEMO = !cfg || !cfg.SUPABASE_URL || cfg.SUPABASE_URL.includes('YOUR-');
+let sb = null, income = [], expense = [], tab = 'inc', chart = null;
+
+// default date range: current year
+const now = new Date();
+document.getElementById('from').value = `${now.getFullYear()}-01-01`;
+document.getElementById('to').value = now.toISOString().slice(0,10);
+
+function showLogin(){ document.getElementById('login').style.display='block'; document.getElementById('app').style.display='none'; }
+function showApp(email){ document.getElementById('login').style.display='none'; document.getElementById('app').style.display='block'; document.getElementById('who').textContent=email||''; }
+
+async function boot(){
+  if (DEMO){ document.getElementById('demoBanner').style.display='block'; showApp('demo'); genDemo(); refresh(); return; }
+  sb = supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+  const { data:{ session } } = await sb.auth.getSession();
+  if (session){ showApp(session.user.email); load(); } else showLogin();
+}
+document.getElementById('loginBtn').onclick = async () => {
+  const err = document.getElementById('loginErr'); err.textContent='';
+  const { data, error } = await sb.auth.signInWithPassword({ email: document.getElementById('email').value.trim(), password: document.getElementById('pass').value });
+  if (error){ err.textContent = error.message; return; }
+  showApp(data.user.email); load();
+};
+document.getElementById('logoutBtn').onclick = async () => { if(sb) await sb.auth.signOut(); showLogin(); };
+
+async function load(){
+  const from = document.getElementById('from').value, to = document.getElementById('to').value;
+  setStatus('Φόρτωση…');
+  const inc = await sb.from('v_fin_income').select('*').gte('issue_date',from).lte('issue_date',to).order('issue_date',{ascending:false}).limit(5000);
+  const exp = await sb.from('fin_expense_docs').select('*').gte('issue_date',from).lte('issue_date',to).order('issue_date',{ascending:false}).limit(5000);
+  if (inc.error||exp.error){ setStatus('Σφάλμα: '+((inc.error||exp.error).message)); return; }
+  income = inc.data||[]; expense = exp.data||[];
+  setStatus('');
+  refresh();
+}
+
+document.getElementById('apply').onclick = () => DEMO ? (genDemo(), refresh()) : load();
+document.getElementById('sync').onclick = async () => {
+  if (DEMO){ setStatus('(demo) ο συγχρονισμός δεν τρέχει σε demo'); return; }
+  setStatus('Συγχρονισμός με myDATA…'); document.getElementById('sync').disabled=true;
+  try{
+    const { data, error } = await sb.functions.invoke('mydata-sync');
+    if (error) throw error;
+    const r = (data&&data.results)||[];
+    setStatus('Συγχρονίστηκε: '+r.map(x=>`${x.side}+${x.added}`).join(', '));
+    load();
+  }catch(e){ setStatus('Σφάλμα sync: '+(e.message||e)); }
+  document.getElementById('sync').disabled=false;
+};
+document.getElementById('tabInc').onclick = () => { tab='inc'; setTabs(); renderTable(); };
+document.getElementById('tabExp').onclick = () => { tab='exp'; setTabs(); renderTable(); };
+function setTabs(){ document.getElementById('tabInc').classList.toggle('on',tab==='inc'); document.getElementById('tabExp').classList.toggle('on',tab==='exp'); }
+
+function setStatus(s){ document.getElementById('status').textContent=s; }
+
+function refresh(){
+  const incNet=sum(income,'net'), incVat=sum(income,'vat'), expNet=sum(expense,'net'), expVat=sum(expense,'vat');
+  document.getElementById('cIncNet').textContent=eur(incNet);
+  document.getElementById('cIncVat').textContent=eur(incVat);
+  document.getElementById('cExpNet').textContent=eur(expNet);
+  document.getElementById('cExpVat').textContent=eur(expVat);
+  const profit=incNet-expNet, vatDue=incVat-expVat;
+  const p=document.getElementById('cProfit'); p.textContent=eur(profit); p.className='big '+(profit>=0?'pos':'neg');
+  const v=document.getElementById('cVat'); v.textContent=eur(vatDue); v.className='big '+(vatDue>=0?'neg':'pos');
+  document.getElementById('nInc').textContent=income.length;
+  document.getElementById('nExp').textContent=expense.length;
+  drawChart(); renderTable();
+}
+const sum = (a,f) => a.reduce((s,x)=>s+(Number(x[f])||0),0);
+
+function monthly(){
+  const m={};
+  const add=(arr,key)=>arr.forEach(x=>{ if(!x.issue_date)return; const ym=x.issue_date.slice(0,7); (m[ym]=m[ym]||{inc:0,exp:0})[key]+=Number(x.net)||0; });
+  add(income,'inc'); add(expense,'exp');
+  return Object.keys(m).sort().map(ym=>({ym,...m[ym]}));
+}
+function drawChart(){
+  if(typeof Chart==='undefined'){ return; }
+  const data=monthly();
+  const ctx=document.getElementById('chart');
+  if(chart) chart.destroy();
+  chart=new Chart(ctx,{type:'bar',data:{labels:data.map(d=>d.ym),datasets:[
+    {label:'Έσοδα',data:data.map(d=>d.inc),backgroundColor:'#22c55e'},
+    {label:'Έξοδα',data:data.map(d=>d.exp),backgroundColor:'#ef4444'}]},
+    options:{plugins:{legend:{labels:{color:'#94a3b8'}}},scales:{x:{ticks:{color:'#94a3b8'},grid:{color:'#1b2332'}},y:{ticks:{color:'#94a3b8'},grid:{color:'#1b2332'}}}}});
+}
+function renderTable(){
+  const thead=document.getElementById('thead'), tbody=document.getElementById('tbody');
+  if(tab==='inc'){
+    thead.innerHTML='<tr><th>Ημ/νία</th><th>Τύπος</th><th>Σειρά/ΑΑ</th><th class="r">Καθαρό</th><th class="r">ΦΠΑ</th><th class="r">Σύνολο</th></tr>';
+    tbody.innerHTML=income.map(x=>`<tr><td>${x.issue_date||''}</td><td>${x.inv_type||''}</td><td class="muted">${(x.series||'')} ${(x.aa||'')}</td><td class="r">${eur(x.net)}</td><td class="r">${eur(x.vat)}</td><td class="r">${eur(x.gross)}</td></tr>`).join('')||'<tr><td colspan=6 class="muted" style="padding:20px">Καμία εγγραφή</td></tr>';
+  }else{
+    thead.innerHTML='<tr><th>Ημ/νία</th><th>Προμηθευτής</th><th>ΑΦΜ</th><th class="r">Καθαρό</th><th class="r">ΦΠΑ</th><th class="r">Σύνολο</th></tr>';
+    tbody.innerHTML=expense.map(x=>`<tr><td>${x.issue_date||''}</td><td>${x.supplier_name||'<span class=muted>—</span>'}</td><td class="muted">${x.supplier_vat||''}</td><td class="r">${eur(x.net)}</td><td class="r">${eur(x.vat)}</td><td class="r">${eur(x.gross)}</td></tr>`).join('')||'<tr><td colspan=6 class="muted" style="padding:20px">Καμία εγγραφή</td></tr>';
+  }
+}
+
+// ---- demo data ----
+function genDemo(){
+  const from=new Date(document.getElementById('from').value), to=new Date(document.getElementById('to').value);
+  income=[]; expense=[];
+  const names=['ΑΒ ΒΑΣΙΛΟΠΟΥΛΟΣ ΑΕ','ΚΡΕΟΠΩΛΕΙΟ ΤΡΙΚΑΛΩΝ ΟΕ','METRO ΑΕΒΕ','ΠΟΤΑ ΘΕΣΣΑΛΙΑΣ ΕΠΕ','ΦΟΥΡΝΟΣ ΠΑΠΠΑ'];
+  for(let d=new Date(from); d<=to; d.setDate(d.getDate()+1)){
+    const ds=d.toISOString().slice(0,10);
+    const net=300+Math.random()*900, vat=net*0.13;
+    income.push({issue_date:ds,inv_type:'11.1',series:'A',aa:String(1000+income.length),net:+net.toFixed(2),vat:+vat.toFixed(2),gross:+(net+vat).toFixed(2)});
+    if(Math.random()<0.4){ const n=120+Math.random()*500, v=n*0.13; expense.push({issue_date:ds,supplier_name:names[(Math.random()*names.length)|0],supplier_vat:'09'+(10000000+((Math.random()*8999999)|0)),net:+n.toFixed(2),vat:+v.toFixed(2),gross:+(n+v).toFixed(2)}); }
+  }
+}
+
+setTabs(); boot();
+</script>
+</body>
+</html>
