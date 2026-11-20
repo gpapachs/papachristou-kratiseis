@@ -133,16 +133,6 @@ Deno.serve(async (req) => {
   RUN_START = Date.now();
   const url = new URL(req.url);
 
-  const probe = url.searchParams.get("probe");
-  if (probe) {
-    const from = url.searchParams.get("from") || "01/01/2026";
-    const to = url.searchParams.get("to") || "31/01/2026";
-    const gpd = url.searchParams.get("gpd") || "true";
-    const u = `${BASE}${probe}?dateFrom=${from}&dateTo=${to}&GroupedPerDay=${gpd}`;
-    const raw = await httpGet(u);
-    return json({ url: u, len: raw.length, body: raw.slice(0, 6000) });
-  }
-
   // full=true → whole history from START_YEAR; otherwise refresh current + previous year
   let full = !!url.searchParams.get("full");
   if (req.method === "POST") { try { const b = await req.json(); if (b && b.full) full = true; } catch { /* no body */ } }
