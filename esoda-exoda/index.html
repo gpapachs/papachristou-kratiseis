@@ -82,10 +82,7 @@ td.r,th.r{text-align:right}
 
     <div class="chartbox"><canvas id="chart" height="110"></canvas></div>
 
-    <div class="tabs">
-      <button id="tabInc" class="on">Έσοδα (<span id="nInc">0</span>)</button>
-      <button id="tabExp">Έξοδα (<span id="nExp">0</span>)</button>
-    </div>
+    <div class="tabs"><strong style="font-size:14px">Μηνιαία ανάλυση</strong></div>
     <div class="tablebox">
       <table>
         <thead id="thead"></thead>
@@ -102,7 +99,7 @@ td.r,th.r{text-align:right}
 const eur = (n) => (Number(n)||0).toLocaleString('el-GR',{style:'currency',currency:'EUR'});
 const cfg = window.KDS_CONFIG;
 const DEMO = !cfg || !cfg.SUPABASE_URL || cfg.SUPABASE_URL.includes('YOUR-');
-let sb = null, income = [], expense = [], tab = 'inc', chart = null;
+let sb = null, daily = [], chart = null;
 
 // default date range: current year
 const now = new Date();
@@ -129,10 +126,9 @@ document.getElementById('logoutBtn').onclick = async () => { if(sb) await sb.aut
 async function load(){
   const from = document.getElementById('from').value, to = document.getElementById('to').value;
   setStatus('Φόρτωση…');
-  const inc = await sb.from('v_fin_income').select('*').gte('issue_date',from).lte('issue_date',to).order('issue_date',{ascending:false}).limit(5000);
-  const exp = await sb.from('fin_expense_docs').select('*').gte('issue_date',from).lte('issue_date',to).order('issue_date',{ascending:false}).limit(5000);
-  if (inc.error||exp.error){ setStatus('Σφάλμα: '+((inc.error||exp.error).message)); return; }
-  income = inc.data||[]; expense = exp.data||[];
+  const res = await sb.from('fin_vat_daily').select('*').gte('d',from).lte('d',to).order('d',{ascending:true}).limit(4000);
+  if (res.error){ setStatus('Σφάλμα: '+res.error.message); return; }
+  daily = res.data||[];
   setStatus('');
   refresh();
 }
@@ -141,34 +137,21 @@ document.getElementById('apply').onclick = () => DEMO ? (genDemo(), refresh()) :
 document.getElementById('sync').onclick = async () => {
   if (DEMO){ setStatus('(demo) ο συγχρονισμός δεν τρέχει σε demo'); return; }
   const btn=document.getElementById('sync'); btn.disabled=true;
-  let tInc=0,tExp=0,i=0;
   setStatus('Συγχρονισμός με myDATA…');
   try{
-    while(i<80){
-      i++;
-      const { data, error } = await sb.functions.invoke('mydata-sync');
-      if (error) throw error;
-      const r=(data&&data.results)||[];
-      const inc=r.find(x=>x.side==='income')||{added:0};
-      const exp=r.find(x=>x.side==='expense')||{added:0};
-      tInc+=inc.added||0; tExp+=exp.added||0;
-      const errMsg=inc.error||exp.error||'';
-      if(errMsg){ setStatus('Σφάλμα myDATA: '+errMsg+' (έσοδα +'+tInc+', έξοδα +'+tExp+')'); break; }
-      setStatus('Συγχρονισμός… έσοδα +'+tInc+', έξοδα +'+tExp);
-      if((inc.added||0)===0 && (exp.added||0)===0){ setStatus('Ολοκληρώθηκε ✓ έσοδα +'+tInc+', έξοδα +'+tExp); break; }
-    }
+    const { data, error } = await sb.functions.invoke('mydata-sync', { body:{ full:true } });
+    if (error) throw error;
+    if (data && data.error){ setStatus('Σφάλμα myDATA: '+data.error); }
+    else { setStatus('Ολοκληρώθηκε ✓ ('+((data&&data.total_days)||0)+' ημέρες)'); }
     load();
   }catch(e){ setStatus('Σφάλμα sync: '+(e.message||e)); }
   btn.disabled=false;
 };
-document.getElementById('tabInc').onclick = () => { tab='inc'; setTabs(); renderTable(); };
-document.getElementById('tabExp').onclick = () => { tab='exp'; setTabs(); renderTable(); };
-function setTabs(){ document.getElementById('tabInc').classList.toggle('on',tab==='inc'); document.getElementById('tabExp').classList.toggle('on',tab==='exp'); }
 
 function setStatus(s){ document.getElementById('status').textContent=s; }
 
 function refresh(){
-  const incNet=sum(income,'net'), incVat=sum(income,'vat'), expNet=sum(expense,'net'), expVat=sum(expense,'vat');
+  const incNet=sum('out_net'), incVat=sum('out_vat'), expNet=sum('in_net'), expVat=sum('in_vat');
   document.getElementById('cIncNet').textContent=eur(incNet);
   document.getElementById('cIncVat').textContent=eur(incVat);
   document.getElementById('cExpNet').textContent=eur(expNet);
@@ -176,16 +159,14 @@ function refresh(){
   const profit=incNet-expNet, vatDue=incVat-expVat;
   const p=document.getElementById('cProfit'); p.textContent=eur(profit); p.className='big '+(profit>=0?'pos':'neg');
   const v=document.getElementById('cVat'); v.textContent=eur(vatDue); v.className='big '+(vatDue>=0?'neg':'pos');
-  document.getElementById('nInc').textContent=income.length;
-  document.getElementById('nExp').textContent=expense.length;
   drawChart(); renderTable();
 }
-const sum = (a,f) => a.reduce((s,x)=>s+(Number(x[f])||0),0);
+const sum = (f) => daily.reduce((s,x)=>s+(Number(x[f])||0),0);
 
 function monthly(){
   const m={};
-  const add=(arr,key)=>arr.forEach(x=>{ if(!x.issue_date)return; const ym=x.issue_date.slice(0,7); (m[ym]=m[ym]||{inc:0,exp:0})[key]+=Number(x.net)||0; });
-  add(income,'inc'); add(expense,'exp');
+  daily.forEach(x=>{ if(!x.d)return; const ym=x.d.slice(0,7); const o=m[ym]=m[ym]||{inc:0,incv:0,exp:0,expv:0};
+    o.inc+=Number(x.out_net)||0; o.incv+=Number(x.out_vat)||0; o.exp+=Number(x.in_net)||0; o.expv+=Number(x.in_vat)||0; });
   return Object.keys(m).sort().map(ym=>({ym,...m[ym]}));
 }
 function drawChart(){
@@ -200,29 +181,26 @@ function drawChart(){
 }
 function renderTable(){
   const thead=document.getElementById('thead'), tbody=document.getElementById('tbody');
-  if(tab==='inc'){
-    thead.innerHTML='<tr><th>Ημ/νία</th><th>Τύπος</th><th>Σειρά/ΑΑ</th><th class="r">Καθαρό</th><th class="r">ΦΠΑ</th><th class="r">Σύνολο</th></tr>';
-    tbody.innerHTML=income.map(x=>`<tr><td>${x.issue_date||''}</td><td>${x.inv_type||''}</td><td class="muted">${(x.series||'')} ${(x.aa||'')}</td><td class="r">${eur(x.net)}</td><td class="r">${eur(x.vat)}</td><td class="r">${eur(x.gross)}</td></tr>`).join('')||'<tr><td colspan=6 class="muted" style="padding:20px">Καμία εγγραφή</td></tr>';
-  }else{
-    thead.innerHTML='<tr><th>Ημ/νία</th><th>Προμηθευτής</th><th>ΑΦΜ</th><th class="r">Καθαρό</th><th class="r">ΦΠΑ</th><th class="r">Σύνολο</th></tr>';
-    tbody.innerHTML=expense.map(x=>`<tr><td>${x.issue_date||''}</td><td>${x.supplier_name||'<span class=muted>—</span>'}</td><td class="muted">${x.supplier_vat||''}</td><td class="r">${eur(x.net)}</td><td class="r">${eur(x.vat)}</td><td class="r">${eur(x.gross)}</td></tr>`).join('')||'<tr><td colspan=6 class="muted" style="padding:20px">Καμία εγγραφή</td></tr>';
-  }
+  thead.innerHTML='<tr><th>Μήνας</th><th class="r">Έσοδα</th><th class="r">ΦΠΑ εκρ.</th><th class="r">Έξοδα</th><th class="r">ΦΠΑ εισρ.</th><th class="r">Αποτέλεσμα</th><th class="r">Χρεωστ. ΦΠΑ</th></tr>';
+  const data=monthly().reverse();
+  tbody.innerHTML=data.map(d=>{
+    const prof=d.inc-d.exp, vat=d.incv-d.expv;
+    return `<tr><td>${d.ym}</td><td class="r">${eur(d.inc)}</td><td class="r muted">${eur(d.incv)}</td><td class="r">${eur(d.exp)}</td><td class="r muted">${eur(d.expv)}</td><td class="r ${prof>=0?'pos':'neg'}">${eur(prof)}</td><td class="r ${vat>=0?'neg':'pos'}">${eur(vat)}</td></tr>`;
+  }).join('')||'<tr><td colspan=7 class="muted" style="padding:20px">Καμία εγγραφή — πάτησε «Συγχρονισμός τώρα»</td></tr>';
 }
 
 // ---- demo data ----
 function genDemo(){
   const from=new Date(document.getElementById('from').value), to=new Date(document.getElementById('to').value);
-  income=[]; expense=[];
-  const names=['ΑΒ ΒΑΣΙΛΟΠΟΥΛΟΣ ΑΕ','ΚΡΕΟΠΩΛΕΙΟ ΤΡΙΚΑΛΩΝ ΟΕ','METRO ΑΕΒΕ','ΠΟΤΑ ΘΕΣΣΑΛΙΑΣ ΕΠΕ','ΦΟΥΡΝΟΣ ΠΑΠΠΑ'];
+  daily=[];
   for(let d=new Date(from); d<=to; d.setDate(d.getDate()+1)){
     const ds=d.toISOString().slice(0,10);
-    const net=300+Math.random()*900, vat=net*0.13;
-    income.push({issue_date:ds,inv_type:'11.1',series:'A',aa:String(1000+income.length),net:+net.toFixed(2),vat:+vat.toFixed(2),gross:+(net+vat).toFixed(2)});
-    if(Math.random()<0.4){ const n=120+Math.random()*500, v=n*0.13; expense.push({issue_date:ds,supplier_name:names[(Math.random()*names.length)|0],supplier_vat:'09'+(10000000+((Math.random()*8999999)|0)),net:+n.toFixed(2),vat:+v.toFixed(2),gross:+(n+v).toFixed(2)}); }
+    const on=800+Math.random()*1500, inn=400+Math.random()*900;
+    daily.push({d:ds,out_net:+on.toFixed(2),out_vat:+(on*0.14).toFixed(2),in_net:+inn.toFixed(2),in_vat:+(inn*0.14).toFixed(2),other:0});
   }
 }
 
-setTabs(); boot();
+boot();
 </script>
 </body>
 </html>

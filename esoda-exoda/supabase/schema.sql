@@ -115,3 +115,34 @@ create or replace view public.v_fin_monthly with (security_invoker = true) as
   where d.issue_date is not null
   group by 1
   order by 1;
+
+-- ────────────────────────────────────────────────────────────────────────
+-- v2: Daily VAT totals from AADE myDATA RequestVatInfo (GroupedPerDay=true).
+-- One call per year returns a per-day breakdown of the Φ2 VAT codes, so we
+-- store totals only (no per-document volume, no paging, no rate-limit pain).
+--   30x -> output net (έσοδα)   33x -> output VAT (ΦΠΑ εκροών)
+--   36x -> input  net (έξοδα)   38x -> input  VAT (ΦΠΑ εισροών)
+-- The dashboard reads this table; fin_income_docs/fin_expense_docs remain for
+-- optional document-level detail but are no longer required for the totals.
+create table if not exists fin_vat_daily (
+  d date primary key,
+  out_net numeric not null default 0,
+  out_vat numeric not null default 0,
+  in_net  numeric not null default 0,
+  in_vat  numeric not null default 0,
+  other   numeric not null default 0,
+  updated_at timestamptz not null default now()
+);
+alter table fin_vat_daily enable row level security;
+drop policy if exists fin_vat_daily_sel on fin_vat_daily;
+create policy fin_vat_daily_sel on fin_vat_daily for select to authenticated using (true);
+
+create or replace view v_fin_vat_monthly
+with (security_invoker = true) as
+select to_char(d,'YYYY-MM') as ym,
+       sum(out_net) out_net, sum(out_vat) out_vat,
+       sum(in_net)  in_net,  sum(in_vat)  in_vat
+from fin_vat_daily group by 1 order by 1;
+
+-- sync state carries an extra 'vat' row; the sync function stores status there
+alter table fin_sync_state add column if not exists cursor text;

@@ -1,38 +1,28 @@
-// ============================================================
-//  mydata-sync — Supabase Edge Function (Deno)
-//  Pulls new documents from AADE myDATA into Supabase, incrementally
-//  by `mark`. One source of truth for ΕΣΟΔΑ (RequestTransmittedDocs)
-//  and ΕΞΟΔΑ (RequestDocs). Holds the AADE key as a secret; never
-//  exposed to the browser.
-//
-//  Secrets (supabase secrets set ...):
-//    MYDATA_USER_ID   aade-user-id
-//    MYDATA_KEY       Ocp-Apim-Subscription-Key
-//    MYDATA_ENV       "prod" (default) | "test"
-//    RG_USER, RG_PASS AADE registry creds for ΑΦΜ→επωνυμία (optional)
-//  Injected automatically by Supabase:
-//    SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
-// ============================================================
+// mydata-sync — pulls ΕΣΟΔΑ/ΕΞΟΔΑ + ΦΠΑ totals from AADE myDATA using the
+// RequestVatInfo endpoint with GroupedPerDay=true: one call per year returns a
+// per-day breakdown (no paging, no per-document volume). Buckets the Φ2 VAT
+// codes into output/input net & VAT and stores one row per day in fin_vat_daily.
+//   30x -> output net (έσοδα)    33x -> output VAT (ΦΠΑ εκροών)
+//   36x -> input  net (έξοδα)    38x -> input  VAT (ΦΠΑ εισροών)
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { XMLParser } from "https://esm.sh/fast-xml-parser@4";
 
 const USER_ID = Deno.env.get("MYDATA_USER_ID") ?? "";
 const KEY     = Deno.env.get("MYDATA_KEY") ?? "";
 const ENV     = (Deno.env.get("MYDATA_ENV") ?? "prod").toLowerCase();
-const RG_USER = Deno.env.get("RG_USER") ?? "";
-const RG_PASS = Deno.env.get("RG_PASS") ?? "";
-const BASE = ENV === "test"
-  ? "https://mydataapidev.aade.gr/myDATA/"
-  : "https://mydatapi.aade.gr/myDATA/";
+const START_YEAR = parseInt(Deno.env.get("MYDATA_START_YEAR") ?? "2021", 10);
+const BASE = ENV === "test" ? "https://mydataapidev.aade.gr/myDATA/" : "https://mydatapi.aade.gr/myDATA/";
 
-const supabase = createClient(
-  Deno.env.get("SUPABASE_URL")!,
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-);
-
+const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 const parser = new XMLParser({ ignoreAttributes: false, removeNSPrefix: true, parseTagValue: false });
 
-// pull a scalar field out of a parsed invoice object regardless of nesting
+const num = (s: any) => { const n = parseFloat(String(s)); return isFinite(n) ? n : 0; };
+const dateOnly = (s: string) => (s && s.length >= 10 ? s.slice(0, 10) : null);
+const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
+
+let RUN_START = 0, LAST_CALL = 0;
+const THROTTLE_MS = 900, BUDGET_MS = 130000;
+
 function pick(obj: any, name: string): string {
   let found = "";
   const walk = (o: any) => {
@@ -45,130 +35,89 @@ function pick(obj: any, name: string): string {
   walk(obj);
   return found;
 }
-// first vatNumber under a given parent key (issuer/counterpart)
-function partyVat(inv: any, parent: string): string {
-  const p = inv?.[parent];
-  if (!p) return "";
-  return pick(p, "vatNumber");
-}
-const num = (s: string) => { const n = parseFloat(s); return isFinite(n) ? n : 0; };
-const dateOnly = (s: string) => (s && s.length >= 10 ? s.slice(0, 10) : null);
 
-async function httpGet(url: string): Promise<string> {
-  const r = await fetch(url, { headers: { "aade-user-id": USER_ID, "Ocp-Apim-Subscription-Key": KEY } });
-  const body = await r.text();
-  if (!r.ok) throw new Error(`myDATA ${r.status}: ${body.slice(0, 300)}`);
-  return body;
-}
-
-// ---- AADE registry: ΑΦΜ -> επωνυμία (best effort, cached) ----
-async function resolveAfm(vat: string): Promise<string> {
-  if (!vat || !RG_USER || !RG_PASS) return "";
-  const { data } = await supabase.from("fin_suppliers").select("name").eq("vat", vat).maybeSingle();
-  if (data?.name) return data.name as string;
-  try {
-    const soap = `<?xml version="1.0" encoding="UTF-8"?>
-<env:Envelope xmlns:env="http://www.w3.org/2003/05/soap-envelope" xmlns:ns1="http://rgwspublic2/RgWsPublic2Service" xmlns:ns2="http://rgwspublic2/RgWsPublic2">
- <env:Header>
-  <wsse:Security xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">
-   <wsse:UsernameToken>
-    <wsse:Username>${RG_USER}</wsse:Username>
-    <wsse:Password Type="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordText">${RG_PASS}</wsse:Password>
-   </wsse:UsernameToken>
-  </wsse:Security>
- </env:Header>
- <env:Body><ns1:rgWsPublic2AfmMethod><ns1:INPUT_REC><ns2:afm_called_by></ns2:afm_called_by><ns2:afm_called_for>${vat}</ns2:afm_called_for></ns1:INPUT_REC></ns1:rgWsPublic2AfmMethod></env:Body>
-</env:Envelope>`;
-    const r = await fetch("https://www1.aade.gr/webtax2/wsgsis/RgWsPublic2/RgWsPublic2Service", {
-      method: "POST",
-      headers: { "Content-Type": "application/soap+xml; charset=utf-8" },
-      body: soap,
-    });
-    const txt = await r.text();
-    const obj = parser.parse(txt);
-    const name = pick(obj, "onomasia") || pick(obj, "commer_title") || "";
-    if (name) await supabase.from("fin_suppliers").upsert({ vat, name, updated_at: new Date().toISOString() });
-    return name;
-  } catch { return ""; }
-}
-
-async function syncSide(side: "income" | "expense", maxPages = 15) {
-  const endpoint = side === "expense" ? "RequestDocs" : "RequestTransmittedDocs";
-  const table = side === "expense" ? "fin_expense_docs" : "fin_income_docs";
-
-  const { data: st } = await supabase.from("fin_sync_state").select("last_mark").eq("side", side).maybeSingle();
-  let cur = BigInt(st?.last_mark ?? 0);
-  let added = 0, pages = 0, done = false, lastError = "";
-
-  try {
-    while (pages < maxPages) {
-      pages++;
-      const xml = await httpGet(`${BASE}${endpoint}?mark=${cur.toString()}`);
-      const doc = parser.parse(xml);
-      const invoices = findInvoices(doc);
-      if (invoices.length === 0) { done = true; break; }
-
-      let maxMark = cur;
-      const rows: any[] = [];
-      for (const inv of invoices) {
-        const mk = pick(inv, "mark");
-        if (!mk) continue;
-        const row: any = {
-          mark: mk,
-          uid: pick(inv, "uid"),
-          issue_date: dateOnly(pick(inv, "issueDate")),
-          series: pick(inv, "series"),
-          aa: pick(inv, "aa"),
-          inv_type: pick(inv, "invoiceType"),
-          net: num(pick(inv, "totalNetValue")),
-          vat: num(pick(inv, "totalVatAmount")),
-          gross: num(pick(inv, "totalGrossValue")),
-        };
-        if (side === "expense") {
-          row.supplier_vat = partyVat(inv, "issuer") || pick(inv, "vatNumber");
-          row.supplier_name = await resolveAfm(row.supplier_vat);
-        } else {
-          row.counterparty_vat = partyVat(inv, "counterpart");
-        }
-        rows.push(row);
-        try { const n = BigInt(mk); if (n > maxMark) maxMark = n; } catch { /* non-numeric mark */ }
-      }
-      if (rows.length) {
-        const { error } = await supabase.from(table).upsert(rows, { onConflict: "mark", ignoreDuplicates: true });
-        if (error) throw new Error(error.message);
-        added += rows.length;
-      }
-      if (maxMark <= cur) { done = true; break; }
-      cur = maxMark;
-      // checkpoint after every page so a timeout still saves progress (resumable)
-      await supabase.from("fin_sync_state").update({ last_mark: Number(cur), last_run: new Date().toISOString() }).eq("side", side);
-    }
-  } catch (e) {
-    lastError = String(e?.message ?? e);
-  }
-
-  const { count } = await supabase.from(table).select("*", { count: "exact", head: true });
-  await supabase.from("fin_sync_state").update({
-    last_mark: Number(cur), last_run: new Date().toISOString(),
-    last_added: added, last_total: count ?? 0, last_error: lastError,
-  }).eq("side", side);
-
-  return { side, added, pages, done, lastMark: cur.toString(), total: count ?? 0, error: lastError };
-}
-
-// locate <invoice> nodes in the parsed myDATA response
-function findInvoices(doc: any): any[] {
+function findTag(doc: any, name: string): any[] {
   let out: any[] = [];
   const walk = (o: any) => {
     if (o == null || typeof o !== "object") return;
     for (const k of Object.keys(o)) {
-      if (k === "invoice") {
-        out = out.concat(Array.isArray(o[k]) ? o[k] : [o[k]]);
-      } else if (typeof o[k] === "object") walk(o[k]);
+      if (k === name) out = out.concat(Array.isArray(o[k]) ? o[k] : [o[k]]);
+      else if (typeof o[k] === "object") walk(o[k]);
     }
   };
   walk(doc);
   return out;
+}
+
+async function httpGet(url: string): Promise<string> {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const since = Date.now() - LAST_CALL;
+    if (since < THROTTLE_MS) await sleep(THROTTLE_MS - since);
+    LAST_CALL = Date.now();
+    const r = await fetch(url, { headers: { "aade-user-id": USER_ID, "Ocp-Apim-Subscription-Key": KEY } });
+    const body = await r.text();
+    if (r.status === 429) {
+      const m = body.match(/(\d+)\s*second/i);
+      const waitS = m ? parseInt(m[1], 10) : 30;
+      if (RUN_START && (Date.now() - RUN_START) + waitS * 1000 > BUDGET_MS) {
+        throw new Error(`myDATA 429 paused (retry later): wait ${waitS}s`);
+      }
+      await sleep((waitS + 2) * 1000);
+      continue;
+    }
+    if (!r.ok) throw new Error(`myDATA ${r.status}: ${body.slice(0, 200)}`);
+    return body;
+  }
+  throw new Error("myDATA 429: retries exhausted");
+}
+
+// Pull one calendar year of per-day VAT totals, upsert into fin_vat_daily.
+async function pullVatYear(year: number): Promise<number> {
+  const u = `${BASE}RequestVatInfo?dateFrom=01/01/${year}&dateTo=31/12/${year}&GroupedPerDay=true`;
+  const doc = parser.parse(await httpGet(u));
+  const entries = findTag(doc, "VatInfo");
+  const rows: any[] = [];
+  for (const e of entries) {
+    const d = dateOnly(pick(e, "IssueDate")); if (!d) continue;
+    let out_net = 0, out_vat = 0, in_net = 0, in_vat = 0, other = 0;
+    for (const k of Object.keys(e)) {
+      if (k === "IssueDate" || k === "Mark" || k === "IsCancelled") continue;
+      const mm = String(k).match(/(\d{3})$/);  // matches VatNNN and VatUnclassifiedNNN
+      if (!mm) continue;
+      const code = mm[1], v = num(e[k]);
+      if (code.startsWith("30")) out_net += v;
+      else if (code.startsWith("33")) out_vat += v;
+      else if (code.startsWith("36")) in_net += v;
+      else if (code.startsWith("38")) in_vat += v;
+      else other += v;
+    }
+    rows.push({ d, out_net, out_vat, in_net, in_vat, other, updated_at: new Date().toISOString() });
+  }
+  if (rows.length) {
+    // replace the year's rows so corrections/cancellations are reflected
+    await supabase.from("fin_vat_daily").delete().gte("d", `${year}-01-01`).lte("d", `${year}-12-31`);
+    const { error } = await supabase.from("fin_vat_daily").upsert(rows, { onConflict: "d" });
+    if (error) throw new Error(error.message);
+  }
+  return rows.length;
+}
+
+async function syncVat(fromYear: number) {
+  const current = new Date().getUTCFullYear();
+  const start = Math.max(fromYear, START_YEAR);
+  let days = 0, years: number[] = [], lastError = "";
+  try {
+    for (let y = start; y <= current; y++) {
+      if (Date.now() - RUN_START > BUDGET_MS) break;
+      days += await pullVatYear(y);
+      years.push(y);
+    }
+  } catch (e) { lastError = String((e as any)?.message ?? e); }
+  const { count } = await supabase.from("fin_vat_daily").select("*", { count: "exact", head: true });
+  await supabase.from("fin_sync_state").update({
+    last_run: new Date().toISOString(), last_added: days, last_total: count ?? 0, last_error: lastError,
+  }).eq("side", "vat");
+  return { years, days, total_days: count ?? 0, error: lastError, done: !lastError };
 }
 
 const cors = {
@@ -179,15 +128,25 @@ const cors = {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
-  const json = (body: unknown, status = 200) =>
-    new Response(JSON.stringify(body, null, 2), { status, headers: { ...cors, "content-type": "application/json" } });
-
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body, null, 2), { status, headers: { ...cors, "content-type": "application/json" } });
   if (!USER_ID || !KEY) return json({ error: "myDATA credentials not configured" }, 500);
-
+  RUN_START = Date.now();
   const url = new URL(req.url);
-  const only = url.searchParams.get("side"); // optional: "income" | "expense"
-  const results: any[] = [];
-  if (only !== "expense") results.push(await syncSide("income"));
-  if (only !== "income")  results.push(await syncSide("expense"));
-  return json({ ok: true, results });
+
+  const probe = url.searchParams.get("probe");
+  if (probe) {
+    const from = url.searchParams.get("from") || "01/01/2026";
+    const to = url.searchParams.get("to") || "31/01/2026";
+    const gpd = url.searchParams.get("gpd") || "true";
+    const u = `${BASE}${probe}?dateFrom=${from}&dateTo=${to}&GroupedPerDay=${gpd}`;
+    const raw = await httpGet(u);
+    return json({ url: u, len: raw.length, body: raw.slice(0, 6000) });
+  }
+
+  // full=true → whole history from START_YEAR; otherwise refresh current + previous year
+  let full = !!url.searchParams.get("full");
+  if (req.method === "POST") { try { const b = await req.json(); if (b && b.full) full = true; } catch { /* no body */ } }
+  const fromYear = full ? START_YEAR : new Date().getUTCFullYear() - 1;
+  const result = await syncVat(fromYear);
+  return json({ ok: true, ...result });
 });
