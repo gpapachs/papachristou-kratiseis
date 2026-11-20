@@ -70,6 +70,7 @@ td.r,th.r{text-align:right}
       <label>Έως</label><input type="date" id="to">
       <button id="apply" class="primary">Αναζήτηση</button>
       <button id="sync">Συγχρονισμός τώρα</button>
+      <button id="syncExp">Συγχρονισμός εξόδων</button>
       <span id="status" class="muted" style="font-size:13px"></span>
     </div>
 
@@ -82,7 +83,10 @@ td.r,th.r{text-align:right}
 
     <div class="chartbox"><canvas id="chart" height="110"></canvas></div>
 
-    <div class="tabs"><strong style="font-size:14px">Μηνιαία ανάλυση</strong></div>
+    <div class="tabs">
+      <button id="tabSum" class="on">Μηνιαία σύνοψη</button>
+      <button id="tabExp">Τιμολόγια εξόδων (<span id="nExp">0</span>)</button>
+    </div>
     <div class="tablebox">
       <table>
         <thead id="thead"></thead>
@@ -99,7 +103,7 @@ td.r,th.r{text-align:right}
 const eur = (n) => (Number(n)||0).toLocaleString('el-GR',{style:'currency',currency:'EUR'});
 const cfg = window.KDS_CONFIG;
 const DEMO = !cfg || !cfg.SUPABASE_URL || cfg.SUPABASE_URL.includes('YOUR-');
-let sb = null, daily = [], chart = null;
+let sb = null, daily = [], expenses = [], tab = 'sum', chart = null;
 
 // default date range: current year
 const now = new Date();
@@ -126,9 +130,12 @@ document.getElementById('logoutBtn').onclick = async () => { if(sb) await sb.aut
 async function load(){
   const from = document.getElementById('from').value, to = document.getElementById('to').value;
   setStatus('Φόρτωση…');
-  const res = await sb.from('fin_vat_daily').select('*').gte('d',from).lte('d',to).order('d',{ascending:true}).limit(4000);
+  const [res, exp] = await Promise.all([
+    sb.from('fin_vat_daily').select('*').gte('d',from).lte('d',to).order('d',{ascending:true}).limit(4000),
+    sb.from('fin_expense_docs').select('*').gte('issue_date',from).lte('issue_date',to).order('issue_date',{ascending:false}).limit(8000),
+  ]);
   if (res.error){ setStatus('Σφάλμα: '+res.error.message); return; }
-  daily = res.data||[];
+  daily = res.data||[]; expenses = exp.data||[];
   setStatus('');
   refresh();
 }
@@ -147,6 +154,28 @@ document.getElementById('sync').onclick = async () => {
   }catch(e){ setStatus('Σφάλμα sync: '+(e.message||e)); }
   btn.disabled=false;
 };
+document.getElementById('syncExp').onclick = async () => {
+  if (DEMO){ setStatus('(demo) ο συγχρονισμός δεν τρέχει σε demo'); return; }
+  const btn=document.getElementById('syncExp'); btn.disabled=true;
+  setStatus('Συγχρονισμός εξόδων (τιμολόγια + ονόματα)…');
+  try{
+    let i=0, total=0;
+    while(i<40){
+      i++;
+      const { data, error } = await sb.functions.invoke('mydata-sync', { body:{ mode:'expenses' } });
+      if (error) throw error;
+      total=(data&&data.total)||total;
+      if (data && data.error && !/429/.test(data.error)){ setStatus('Σφάλμα myDATA: '+data.error); break; }
+      setStatus('Συγχρονισμός εξόδων… μήνας '+((data&&data.month)||'')+' (σύνολο '+total+')');
+      if (data && data.done){ setStatus('Ολοκληρώθηκε ✓ '+total+' τιμολόγια εξόδων'); break; }
+      if (data && data.error && /429/.test(data.error)){ await new Promise(r=>setTimeout(r,5000)); }
+    }
+    load();
+  }catch(e){ setStatus('Σφάλμα sync εξόδων: '+(e.message||e)); }
+  btn.disabled=false;
+};
+document.getElementById('tabSum').onclick = () => { tab='sum'; setTabs(); renderTable(); };
+document.getElementById('tabExp').onclick = () => { tab='exp'; setTabs(); renderTable(); };
 
 function setStatus(s){ document.getElementById('status').textContent=s; }
 
@@ -159,8 +188,10 @@ function refresh(){
   const profit=incNet-expNet, vatDue=incVat-expVat;
   const p=document.getElementById('cProfit'); p.textContent=eur(profit); p.className='big '+(profit>=0?'pos':'neg');
   const v=document.getElementById('cVat'); v.textContent=eur(vatDue); v.className='big '+(vatDue>=0?'neg':'pos');
+  document.getElementById('nExp').textContent=expenses.length;
   drawChart(); renderTable();
 }
+function setTabs(){ document.getElementById('tabSum').classList.toggle('on',tab==='sum'); document.getElementById('tabExp').classList.toggle('on',tab==='exp'); }
 const sum = (f) => daily.reduce((s,x)=>s+(Number(x[f])||0),0);
 
 function monthly(){
@@ -181,6 +212,11 @@ function drawChart(){
 }
 function renderTable(){
   const thead=document.getElementById('thead'), tbody=document.getElementById('tbody');
+  if(tab==='exp'){
+    thead.innerHTML='<tr><th>Ημ/νία</th><th>Προμηθευτής</th><th>ΑΦΜ</th><th>Τύπος</th><th class="r">Καθαρό</th><th class="r">ΦΠΑ</th><th class="r">Σύνολο</th></tr>';
+    tbody.innerHTML=expenses.map(x=>`<tr><td>${x.issue_date||''}</td><td>${x.supplier_name||'<span class=muted>—</span>'}</td><td class="muted">${x.supplier_vat||''}</td><td class="muted">${x.inv_type||''}</td><td class="r">${eur(x.net)}</td><td class="r">${eur(x.vat)}</td><td class="r">${eur(x.gross)}</td></tr>`).join('')||'<tr><td colspan=7 class="muted" style="padding:20px">Καμία εγγραφή εξόδων — πάτησε «Συγχρονισμός εξόδων»</td></tr>';
+    return;
+  }
   thead.innerHTML='<tr><th>Μήνας</th><th class="r">Έσοδα</th><th class="r">ΦΠΑ εκρ.</th><th class="r">Έξοδα</th><th class="r">ΦΠΑ εισρ.</th><th class="r">Αποτέλεσμα</th><th class="r">Χρεωστ. ΦΠΑ</th></tr>';
   const data=monthly().reverse();
   tbody.innerHTML=data.map(d=>{
