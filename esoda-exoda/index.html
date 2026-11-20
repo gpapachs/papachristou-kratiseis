@@ -34,6 +34,12 @@ th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white
 th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.4px}
 td.r,th.r{text-align:right}
 .tablebox{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:auto;max-height:52vh}
+.tablebox table{table-layout:fixed}
+td.wrap{white-space:normal;word-break:break-word}
+.subtools{display:none;flex-wrap:wrap;gap:8px;align-items:center;margin:2px 0 12px}
+.subtools.on{display:flex}
+.subtools input[type=text]{min-width:min(260px,60vw);flex:1}
+.subtools label{color:var(--muted);font-size:13px}
 .muted{color:var(--muted)}
 .banner{background:#422006;color:#fde68a;border:1px solid #713f12;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:14px}
 /* login */
@@ -86,6 +92,12 @@ td.r,th.r{text-align:right}
     <div class="tabs">
       <button id="tabSum" class="on">Μηνιαία σύνοψη</button>
       <button id="tabExp">Τιμολόγια εξόδων (<span id="nExp">0</span>)</button>
+    </div>
+    <div class="subtools" id="expTools">
+      <input type="text" id="expQ" placeholder="🔍 Αναζήτηση προμηθευτή ή ΑΦΜ…">
+      <label>Από</label><input type="date" id="expFrom">
+      <label>Έως</label><input type="date" id="expTo">
+      <button id="expClear">Καθαρισμός</button>
     </div>
     <div class="tablebox">
       <table>
@@ -176,6 +188,8 @@ document.getElementById('syncExp').onclick = async () => {
 };
 document.getElementById('tabSum').onclick = () => { tab='sum'; setTabs(); renderTable(); };
 document.getElementById('tabExp').onclick = () => { tab='exp'; setTabs(); renderTable(); };
+['expQ','expFrom','expTo'].forEach(id=>document.getElementById(id).addEventListener('input',()=>{ if(tab==='exp') renderTable(); }));
+document.getElementById('expClear').onclick = () => { document.getElementById('expQ').value=''; document.getElementById('expFrom').value=''; document.getElementById('expTo').value=''; renderTable(); };
 
 function setStatus(s){ document.getElementById('status').textContent=s; }
 
@@ -191,7 +205,21 @@ function refresh(){
   document.getElementById('nExp').textContent=expenses.length;
   drawChart(); renderTable();
 }
-function setTabs(){ document.getElementById('tabSum').classList.toggle('on',tab==='sum'); document.getElementById('tabExp').classList.toggle('on',tab==='exp'); }
+function setTabs(){
+  document.getElementById('tabSum').classList.toggle('on',tab==='sum');
+  document.getElementById('tabExp').classList.toggle('on',tab==='exp');
+  document.getElementById('expTools').classList.toggle('on',tab==='exp');
+}
+function filteredExpenses(){
+  const q=(document.getElementById('expQ').value||'').trim().toLowerCase();
+  const f=document.getElementById('expFrom').value, t=document.getElementById('expTo').value;
+  return expenses.filter(x=>{
+    if(f && (x.issue_date||'')<f) return false;
+    if(t && (x.issue_date||'')>t) return false;
+    if(q){ const hay=((x.supplier_name||'')+' '+(x.supplier_vat||'')).toLowerCase(); if(!hay.includes(q)) return false; }
+    return true;
+  });
+}
 const sum = (f) => daily.reduce((s,x)=>s+(Number(x[f])||0),0);
 
 function monthly(){
@@ -213,8 +241,13 @@ function drawChart(){
 function renderTable(){
   const thead=document.getElementById('thead'), tbody=document.getElementById('tbody');
   if(tab==='exp'){
-    thead.innerHTML='<tr><th>Ημ/νία</th><th>Προμηθευτής</th><th>ΑΦΜ</th><th>Τύπος</th><th class="r">Καθαρό</th><th class="r">ΦΠΑ</th><th class="r">Σύνολο</th></tr>';
-    tbody.innerHTML=expenses.map(x=>`<tr><td>${x.issue_date||''}</td><td>${x.supplier_name||'<span class=muted>—</span>'}</td><td class="muted">${x.supplier_vat||''}</td><td class="muted">${x.inv_type||''}</td><td class="r">${eur(x.net)}</td><td class="r">${eur(x.vat)}</td><td class="r">${eur(x.gross)}</td></tr>`).join('')||'<tr><td colspan=7 class="muted" style="padding:20px">Καμία εγγραφή εξόδων — πάτησε «Συγχρονισμός εξόδων»</td></tr>';
+    const rows=filteredExpenses();
+    document.getElementById('nExp').textContent=rows.length;
+    const tot=rows.reduce((s,x)=>s+(Number(x.net)||0),0);
+    thead.innerHTML='<tr><th style="width:88px">Ημ/νία</th><th>Προμηθευτής</th><th style="width:92px">ΑΦΜ</th><th style="width:52px">Τύπ.</th><th class="r" style="width:84px">Καθαρό</th><th class="r" style="width:74px">ΦΠΑ</th><th class="r" style="width:90px">Σύνολο</th></tr>';
+    tbody.innerHTML=rows.map(x=>`<tr><td class="muted">${x.issue_date||''}</td><td class="wrap">${x.supplier_name||'<span class=muted>—</span>'}</td><td class="muted">${x.supplier_vat||''}</td><td class="muted">${x.inv_type||''}</td><td class="r">${eur(x.net)}</td><td class="r muted">${eur(x.vat)}</td><td class="r">${eur(x.gross)}</td></tr>`).join('')
+      +(rows.length?`<tr><td></td><td class="wrap"><strong>Σύνολο (${rows.length})</strong></td><td></td><td></td><td class="r"><strong>${eur(tot)}</strong></td><td></td><td></td></tr>`:'');
+    if(!rows.length) tbody.innerHTML='<tr><td colspan=7 class="muted" style="padding:20px">Καμία εγγραφή εξόδων για τα φίλτρα</td></tr>';
     return;
   }
   thead.innerHTML='<tr><th>Μήνας</th><th class="r">Έσοδα</th><th class="r">ΦΠΑ εκρ.</th><th class="r">Έξοδα</th><th class="r">ΦΠΑ εισρ.</th><th class="r">Αποτέλεσμα</th><th class="r">Χρεωστ. ΦΠΑ</th></tr>';
