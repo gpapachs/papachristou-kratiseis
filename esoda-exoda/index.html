@@ -66,6 +66,12 @@ tr.drow td:first-child{padding-left:26px}
   .card .big{font-size:19px}
   table{font-size:12px}
   th,td{padding:6px 5px}
+  /* expense table: flexible layout, drop ΑΦΜ/Τύπος/ΦΠΑ so supplier name fits */
+  table.exp{table-layout:auto}
+  table.exp th[style]{width:auto!important}
+  table.exp th:nth-child(3),table.exp td:nth-child(3),
+  table.exp th:nth-child(4),table.exp td:nth-child(4),
+  table.exp th:nth-child(6),table.exp td:nth-child(6){display:none}
 }
 /* login */
 #login{max-width:360px;margin:12vh auto;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:26px}
