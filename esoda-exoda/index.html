@@ -29,12 +29,14 @@ input{font:inherit;background:var(--surface);border:1px solid var(--line);color:
 .chartbox{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:18px}
 .tabs{display:flex;gap:8px;margin-bottom:10px}
 .tabs button.on{background:var(--blue);border-color:var(--blue);color:#fff}
-table{width:100%;border-collapse:collapse;font-size:14px}
+table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
 th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
 th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.4px}
 td.r,th.r{text-align:right}
-.tablebox{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:auto;max-height:52vh}
-.tablebox table{table-layout:fixed}
+.tablebox{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:auto;max-height:60vh}
+.tablebox table.fixed{table-layout:fixed}
+th,td{tab-size:4}
+td.num{font-variant-numeric:tabular-nums}
 td.wrap{white-space:normal;word-break:break-word}
 .subtools{display:none;flex-wrap:wrap;gap:8px;align-items:center;margin:2px 0 12px}
 .subtools.on{display:flex}
@@ -42,6 +44,27 @@ td.wrap{white-space:normal;word-break:break-word}
 .subtools label{color:var(--muted);font-size:13px}
 .muted{color:var(--muted)}
 .banner{background:#422006;color:#fde68a;border:1px solid #713f12;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:14px}
+/* tablet / narrow screens */
+@media (max-width:900px){
+  .wrap{padding:14px 14px}
+  .cards{grid-template-columns:repeat(2,1fr)}
+  .card{padding:13px}
+  .card .big{font-size:21px}
+  table{font-size:13px}
+  th,td{padding:7px 8px}
+  .tablebox{max-height:64vh}
+  header{padding:10px 14px}
+  header h1{font-size:15px}
+}
+@media (max-width:560px){
+  .cards{grid-template-columns:1fr 1fr}
+  .card .big{font-size:19px}
+  table{font-size:12px}
+  th,td{padding:6px 6px}
+  /* hide the two VAT sub-columns in the monthly summary to fit phones */
+  table.sum th:nth-child(3),table.sum td:nth-child(3),
+  table.sum th:nth-child(5),table.sum td:nth-child(5){display:none}
+}
 /* login */
 #login{max-width:360px;margin:12vh auto;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:26px}
 #login h2{font-size:18px;margin-bottom:4px}
@@ -240,6 +263,8 @@ function drawChart(){
 }
 function renderTable(){
   const thead=document.getElementById('thead'), tbody=document.getElementById('tbody');
+  const tableEl=thead.parentElement;
+  tableEl.className = (tab==='exp' ? 'fixed exp' : 'sum');
   if(tab==='exp'){
     const rows=filteredExpenses();
     document.getElementById('nExp').textContent=rows.length;
