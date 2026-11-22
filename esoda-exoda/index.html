@@ -114,6 +114,11 @@ tr.drow td:first-child{padding-left:26px}
 
     <div class="chartbox"><canvas id="chart" height="110"></canvas></div>
 
+    <div class="chartbox" id="vatQbox" style="padding:14px 16px">
+      <div style="font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">ΦΠΑ ανά τρίμηνο</div>
+      <div style="overflow:auto"><table id="vatQ"><thead id="vatQhead"></thead><tbody id="vatQbody"></tbody></table></div>
+    </div>
+
     <div class="tabs">
       <button id="tabSum" class="on">Μηνιαία σύνοψη</button>
       <button id="tabExp">Τιμολόγια εξόδων (<span id="nExp">0</span>)</button>
@@ -235,7 +240,18 @@ function refresh(){
   const p=document.getElementById('cProfit'); p.textContent=eur(profit); p.className='big '+(profit>=0?'pos':'neg');
   const v=document.getElementById('cVat'); v.textContent=eur(vatDue); v.className='big '+(vatDue>=0?'neg':'pos');
   document.getElementById('nExp').textContent=expenses.length;
-  drawChart(); renderTable();
+  drawChart(); renderQuarters(); renderTable();
+}
+function renderQuarters(){
+  const q={};
+  daily.forEach(x=>{ if(!x.d)return; const y=x.d.slice(0,4), m=+x.d.slice(5,7), key=y+'-Τ'+Math.ceil(m/3);
+    const o=q[key]=q[key]||{incv:0,expv:0}; o.incv+=+x.out_vat||0; o.expv+=+x.in_vat||0; });
+  const keys=Object.keys(q).sort().reverse();
+  document.getElementById('vatQhead').innerHTML='<tr><th>Τρίμηνο</th><th class="r">ΦΠΑ εσόδων</th><th class="r">ΦΠΑ εξόδων</th><th class="r">Χρεωστικό ΦΠΑ</th></tr>';
+  document.getElementById('vatQbody').innerHTML=keys.map(k=>{
+    const o=q[k], due=o.incv-o.expv;
+    return `<tr><td>${k}</td><td class="r">${eur(o.incv)}</td><td class="r muted">${eur(o.expv)}</td><td class="r ${due>=0?'neg':'pos'}"><strong>${eur(due)}</strong></td></tr>`;
+  }).join('')||'<tr><td colspan=4 class="muted" style="padding:14px">—</td></tr>';
 }
 function setTabs(){
   document.getElementById('tabSum').classList.toggle('on',tab==='sum');
