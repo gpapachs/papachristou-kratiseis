@@ -38,6 +38,11 @@ td.r,th.r{text-align:right}
 th,td{tab-size:4}
 td.num{font-variant-numeric:tabular-nums}
 td.wrap{white-space:normal;word-break:break-word}
+tr.mrow{cursor:pointer}
+tr.mrow:hover td{background:var(--surface2)}
+tr.drow td{background:rgba(255,255,255,.025);font-size:.9em}
+tr.drow td:first-child{padding-left:26px}
+.arw{color:var(--muted);font-size:10px;display:inline-block;width:12px}
 .subtools{display:none;flex-wrap:wrap;gap:8px;align-items:center;margin:2px 0 12px}
 .subtools.on{display:flex}
 .subtools input[type=text]{min-width:min(260px,60vw);flex:1}
@@ -138,7 +143,7 @@ td.wrap{white-space:normal;word-break:break-word}
 const eur = (n) => (Number(n)||0).toLocaleString('el-GR',{style:'currency',currency:'EUR'});
 const cfg = window.KDS_CONFIG;
 const DEMO = !cfg || !cfg.SUPABASE_URL || cfg.SUPABASE_URL.includes('YOUR-');
-let sb = null, daily = [], expenses = [], tab = 'sum', chart = null;
+let sb = null, daily = [], expenses = [], tab = 'sum', chart = null, expanded = new Set();
 
 // default date range: current year
 const now = new Date();
@@ -213,6 +218,13 @@ document.getElementById('tabSum').onclick = () => { tab='sum'; setTabs(); render
 document.getElementById('tabExp').onclick = () => { tab='exp'; setTabs(); renderTable(); };
 ['expQ','expFrom','expTo'].forEach(id=>document.getElementById(id).addEventListener('input',()=>{ if(tab==='exp') renderTable(); }));
 document.getElementById('expClear').onclick = () => { document.getElementById('expQ').value=''; document.getElementById('expFrom').value=''; document.getElementById('expTo').value=''; renderTable(); };
+document.getElementById('tbody').addEventListener('click', (e) => {
+  if(tab!=='sum') return;
+  const tr=e.target.closest('tr.mrow'); if(!tr) return;
+  const ym=tr.dataset.ym;
+  if(expanded.has(ym)) expanded.delete(ym); else expanded.add(ym);
+  renderTable();
+});
 
 function setStatus(s){ document.getElementById('status').textContent=s; }
 
@@ -277,9 +289,14 @@ function renderTable(){
   }
   thead.innerHTML='<tr><th>Μήνας</th><th class="r">Έσοδα</th><th class="r">ΦΠΑ εκρ.</th><th class="r">Έξοδα</th><th class="r">ΦΠΑ εισρ.</th><th class="r">Αποτέλεσμα</th><th class="r">Χρεωστ. ΦΠΑ</th></tr>';
   const data=monthly().reverse();
+  const dayRows=(ym)=>daily.filter(x=>(x.d||'').slice(0,7)===ym).sort((a,b)=>(a.d<b.d?-1:1)).map(x=>{
+    const inc=+x.out_net||0, incv=+x.out_vat||0, exp=+x.in_net||0, expv=+x.in_vat||0, prof=inc-exp, vat=incv-expv;
+    return `<tr class="drow"><td class="muted">${x.d}</td><td class="r">${eur(inc)}</td><td class="r muted">${eur(incv)}</td><td class="r">${eur(exp)}</td><td class="r muted">${eur(expv)}</td><td class="r ${prof>=0?'pos':'neg'}">${eur(prof)}</td><td class="r ${vat>=0?'neg':'pos'}">${eur(vat)}</td></tr>`;
+  }).join('');
   tbody.innerHTML=data.map(d=>{
-    const prof=d.inc-d.exp, vat=d.incv-d.expv;
-    return `<tr><td>${d.ym}</td><td class="r">${eur(d.inc)}</td><td class="r muted">${eur(d.incv)}</td><td class="r">${eur(d.exp)}</td><td class="r muted">${eur(d.expv)}</td><td class="r ${prof>=0?'pos':'neg'}">${eur(prof)}</td><td class="r ${vat>=0?'neg':'pos'}">${eur(vat)}</td></tr>`;
+    const prof=d.inc-d.exp, vat=d.incv-d.expv, open=expanded.has(d.ym);
+    const mrow=`<tr class="mrow" data-ym="${d.ym}"><td><span class="arw">${open?'▾':'▸'}</span> ${d.ym}</td><td class="r">${eur(d.inc)}</td><td class="r muted">${eur(d.incv)}</td><td class="r">${eur(d.exp)}</td><td class="r muted">${eur(d.expv)}</td><td class="r ${prof>=0?'pos':'neg'}">${eur(prof)}</td><td class="r ${vat>=0?'neg':'pos'}">${eur(vat)}</td></tr>`;
+    return mrow + (open ? dayRows(d.ym) : '');
   }).join('')||'<tr><td colspan=7 class="muted" style="padding:20px">Καμία εγγραφή — πάτησε «Συγχρονισμός τώρα»</td></tr>';
 }
 
