@@ -43,6 +43,7 @@ tr.mrow:hover td{background:var(--surface2)}
 tr.drow td{background:rgba(255,255,255,.025);font-size:.9em}
 tr.drow td:first-child{padding-left:26px}
 .arw{color:var(--muted);font-size:10px;display:inline-block;width:12px}
+td.gross,th.gross{background:rgba(59,130,246,.06)}
 .subtools{display:none;flex-wrap:wrap;gap:8px;align-items:center;margin:2px 0 12px}
 .subtools.on{display:flex}
 .subtools input[type=text]{min-width:min(260px,60vw);flex:1}
@@ -72,6 +73,8 @@ tr.drow td:first-child{padding-left:26px}
   table.exp th:nth-child(3),table.exp td:nth-child(3),
   table.exp th:nth-child(4),table.exp td:nth-child(4),
   table.exp th:nth-child(6),table.exp td:nth-child(6){display:none}
+  /* summary: hide "Μικτά έσοδα" on phones to save width */
+  table.sum th:nth-child(4),table.sum td:nth-child(4){display:none}
 }
 /* login */
 #login{max-width:360px;margin:12vh auto;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:26px}
@@ -306,17 +309,17 @@ function renderTable(){
     if(!rows.length) tbody.innerHTML='<tr><td colspan=7 class="muted" style="padding:20px">Καμία εγγραφή εξόδων για τα φίλτρα</td></tr>';
     return;
   }
-  thead.innerHTML='<tr><th>Μήνας</th><th class="r">Έσοδα (καθαρά)</th><th class="r">ΦΠΑ εσόδων</th><th class="r">Έξοδα (καθαρά)</th><th class="r">ΦΠΑ εξόδων</th><th class="r">Αποτέλεσμα</th><th class="r">Χρεωστ. ΦΠΑ</th></tr>';
+  thead.innerHTML='<tr><th>Μήνας</th><th class="r">Έσοδα (καθαρά)</th><th class="r">ΦΠΑ εσόδων</th><th class="r gross">Μικτά έσοδα</th><th class="r">Έξοδα (καθαρά)</th><th class="r">ΦΠΑ εξόδων</th><th class="r">Αποτέλεσμα</th><th class="r">Χρεωστ. ΦΠΑ</th></tr>';
   const data=monthly().reverse();
   const dayRows=(ym)=>daily.filter(x=>(x.d||'').slice(0,7)===ym).sort((a,b)=>(a.d<b.d?-1:1)).map(x=>{
     const inc=+x.out_net||0, incv=+x.out_vat||0, exp=+x.in_net||0, expv=+x.in_vat||0, prof=inc-exp, vat=incv-expv;
-    return `<tr class="drow"><td class="muted">${x.d}</td><td class="r">${eur(inc)}</td><td class="r muted">${eur(incv)}</td><td class="r">${eur(exp)}</td><td class="r muted">${eur(expv)}</td><td class="r ${prof>=0?'pos':'neg'}">${eur(prof)}</td><td class="r ${vat>=0?'neg':'pos'}">${eur(vat)}</td></tr>`;
+    return `<tr class="drow"><td class="muted">${x.d}</td><td class="r">${eur(inc)}</td><td class="r muted">${eur(incv)}</td><td class="r gross">${eur(inc+incv)}</td><td class="r">${eur(exp)}</td><td class="r muted">${eur(expv)}</td><td class="r ${prof>=0?'pos':'neg'}">${eur(prof)}</td><td class="r ${vat>=0?'neg':'pos'}">${eur(vat)}</td></tr>`;
   }).join('');
   tbody.innerHTML=data.map(d=>{
     const prof=d.inc-d.exp, vat=d.incv-d.expv, open=expanded.has(d.ym);
-    const mrow=`<tr class="mrow" data-ym="${d.ym}"><td><span class="arw">${open?'▾':'▸'}</span> ${d.ym}</td><td class="r">${eur(d.inc)}</td><td class="r muted">${eur(d.incv)}</td><td class="r">${eur(d.exp)}</td><td class="r muted">${eur(d.expv)}</td><td class="r ${prof>=0?'pos':'neg'}">${eur(prof)}</td><td class="r ${vat>=0?'neg':'pos'}">${eur(vat)}</td></tr>`;
+    const mrow=`<tr class="mrow" data-ym="${d.ym}"><td><span class="arw">${open?'▾':'▸'}</span> ${d.ym}</td><td class="r">${eur(d.inc)}</td><td class="r muted">${eur(d.incv)}</td><td class="r gross">${eur(d.inc+d.incv)}</td><td class="r">${eur(d.exp)}</td><td class="r muted">${eur(d.expv)}</td><td class="r ${prof>=0?'pos':'neg'}">${eur(prof)}</td><td class="r ${vat>=0?'neg':'pos'}">${eur(vat)}</td></tr>`;
     return mrow + (open ? dayRows(d.ym) : '');
-  }).join('')||'<tr><td colspan=7 class="muted" style="padding:20px">Καμία εγγραφή — πάτησε «Συγχρονισμός τώρα»</td></tr>';
+  }).join('')||'<tr><td colspan=8 class="muted" style="padding:20px">Καμία εγγραφή — πάτησε «Συγχρονισμός τώρα»</td></tr>';
 }
 
 // ---- demo data ----
